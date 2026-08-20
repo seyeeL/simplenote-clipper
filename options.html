@@ -97,6 +97,11 @@
     <h2>剪藏默认值</h2>
     <label for="default-tags">默认标签（空格或逗号分隔）</label>
     <input type="text" id="default-tags" autocomplete="off" spellcheck="false">
+    <label style="margin:12px 0 4px">其它默认标签</label>
+    <div style="display:flex;gap:20px">
+      <span class="row"><input type="checkbox" id="tag-author"><label for="tag-author">作者</label></span>
+      <span class="row"><input type="checkbox" id="tag-site"><label for="tag-site">域名来源</label></span>
+    </div>
     <div class="row" style="margin-top:12px">
       <input type="checkbox" id="pinned">
       <label for="pinned">剪藏后在 Simplenote 里置顶</label>

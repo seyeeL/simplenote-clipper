@@ -261,11 +261,13 @@ export async function clip({ tabId, tags, skipImages = false } = {}) {
 		});
 		const noteData = buildNoteData({
 			content,
-			// 作者和来源站点不写进 frontmatter，走标签
+			// 来源站点不写进属性区；作者两边都有，标签那份看设置开关
 			tags: buildTags({
 				tags: tags ?? settings.defaultTags,
 				author: article.author,
 				url: article.url,
+				withAuthor: settings.tagAuthor,
+				withSite: settings.tagSite,
 			}),
 			pinned: settings.pinned,
 		});

@@ -22,6 +22,8 @@ async function renderSettings() {
 	$('default-tags').value = settings.defaultTags;
 	$('pinned').checked = Boolean(settings.pinned);
 	$('title-heading').checked = Boolean(settings.titleHeading);
+	$('tag-author').checked = Boolean(settings.tagAuthor);
+	$('tag-site').checked = Boolean(settings.tagSite);
 }
 
 // 两次请求之间至少隔这么久。连点时多余的点击直接丢掉，不发请求。
@@ -174,6 +176,8 @@ $('save-settings').addEventListener('click', async () => {
 		defaultTags: $('default-tags').value,
 		pinned: $('pinned').checked,
 		titleHeading: $('title-heading').checked,
+		tagAuthor: $('tag-author').checked,
+		tagSite: $('tag-site').checked,
 	});
 	setStatus('settings-status', '已保存。', 'ok');
 });
