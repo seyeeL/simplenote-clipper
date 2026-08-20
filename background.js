@@ -4,9 +4,9 @@
 
 import { collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex } from './lib/images.js';
 import { buildNoteContent, buildNoteData, buildTags } from './lib/note.js';
-import { buildObjectKey, isOssConfigured, putObject } from './lib/oss.js';
+import { buildObjectKey, isOssConfigured, probeUpload, putObject } from './lib/oss.js';
 import { createNote, SimperiumError } from './lib/simperium.js';
-import { loadAuth, loadSettings } from './storage.js';
+import { loadAuth, loadSettings, saveImageReport } from './storage.js';
 
 const MENU_ID = 'clip-to-simplenote';
 const BADGE_MS = 4000;
@@ -15,6 +15,10 @@ const BADGE_MS = 4000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 // 同时传几张。图多的文章别一次把带宽打满
 const UPLOAD_CONCURRENCY = 4;
+// 抓任意站点的图需要的权限，勾选启用图床时才向用户申请
+const IMAGE_ORIGINS = { origins: ['<all_urls>'] };
+// 失败详情留几条给设置页看。同一篇文章的失败原因通常一样，不用全存
+const MAX_KEPT_ERRORS = 5;
 
 chrome.runtime.onInstalled.addListener(() => {
 	chrome.contextMenus.create({
@@ -31,10 +35,36 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-	if (message?.type !== 'clip') return false;
-	clip(message.payload ?? {}).then(sendResponse);
-	return true; // 异步回包
+	if (message?.type === 'clip') {
+		clip(message.payload ?? {}).then(sendResponse);
+		return true; // 异步回包
+	}
+	if (message?.type === 'probe-oss') {
+		probeOss().then(sendResponse);
+		return true;
+	}
+	return false;
 });
+
+/**
+ * 图床自检。剪藏时逐张失败很难判断卡在哪一环，这里按顺序验三件事：
+ * 有没有权限、配置全不全、OSS 收不收这次上传。
+ */
+export async function probeOss() {
+	const { oss } = await loadSettings();
+	if (!isOssConfigured(oss)) {
+		return { ok: false, stage: 'config', message: 'AccessKey ID / Secret / Bucket / Region 没填全。' };
+	}
+	if (!(await chrome.permissions.contains(IMAGE_ORIGINS))) {
+		return { ok: false, stage: 'permission', message: '缺少跨域读取权限，把「启用图床」取消再重新勾选，弹窗里点允许。' };
+	}
+	try {
+		const { url } = await probeUpload(oss);
+		return { ok: true, message: `上传成功：${url}` };
+	} catch (err) {
+		return { ok: false, stage: 'upload', message: err?.message ?? String(err) };
+	}
+}
 
 async function flashBadge(ok) {
 	await chrome.action.setBadgeBackgroundColor({ color: ok ? '#2E7D32' : '#C62828' });
@@ -74,12 +104,19 @@ async function collectArticle(tabId) {
 async function mirrorOne(url, oss) {
 	// service worker 默认不发 Referer，微信这类防盗链站点反而能正常返回原图；
 	// 带错 Referer 会拿到「未经允许不可引用」的占位图
-	const res = await fetch(url);
-	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	let res;
+	try {
+		res = await fetch(url);
+	} catch (err) {
+		// 没拿到跨域权限时图片站点不返回 CORS 头，这里就是一句没有信息量的
+		// "Failed to fetch"，得自己补上下文
+		throw new Error(`抓图失败：${err?.message ?? err}（可能是缺少跨域读取权限）`);
+	}
+	if (!res.ok) throw new Error(`抓图失败：HTTP ${res.status}`);
 
 	const buffer = await res.arrayBuffer();
-	if (!buffer.byteLength) throw new Error('空响应');
-	if (buffer.byteLength > MAX_IMAGE_BYTES) throw new Error('超过大小上限');
+	if (!buffer.byteLength) throw new Error('抓图失败：空响应');
+	if (buffer.byteLength > MAX_IMAGE_BYTES) throw new Error('跳过：超过大小上限');
 
 	const contentType = res.headers.get('Content-Type') ?? '';
 	const ext = extensionFor(contentType, url);
@@ -99,18 +136,30 @@ async function mirrorOne(url, oss) {
  */
 async function mirrorImages(markdown, oss) {
 	const urls = collectImageUrls(markdown);
-	if (!urls.length) return { markdown, uploaded: 0, failed: 0 };
+	if (!urls.length) return { markdown, uploaded: 0, failed: 0, errors: [] };
+
+	// 没有跨域权限的话每张都会失败，而且报的是没信息量的 "Failed to fetch"。
+	// 先查一次，直接说清楚，不要让人对着 N 条一样的错误猜。
+	if (!(await chrome.permissions.contains(IMAGE_ORIGINS))) {
+		return {
+			markdown,
+			uploaded: 0,
+			failed: urls.length,
+			errors: [{ url: '', reason: '缺少跨域读取权限：去设置页把「启用图床」取消再重新勾选，弹窗里点允许。' }],
+		};
+	}
 
 	const mapping = {};
-	let failed = 0;
+	const errors = [];
 	for (let i = 0; i < urls.length; i += UPLOAD_CONCURRENCY) {
 		await Promise.all(
 			urls.slice(i, i + UPLOAD_CONCURRENCY).map(async (url) => {
 				try {
 					mapping[url] = await mirrorOne(url, oss);
 				} catch (err) {
-					failed += 1;
-					console.warn('[图床] 转存失败，保留原链接:', url, err?.message ?? err);
+					const reason = err?.message ?? String(err);
+					errors.push({ url, reason });
+					console.warn('[图床] 转存失败，保留原链接:', url, reason);
 				}
 			}),
 		);
@@ -119,7 +168,8 @@ async function mirrorImages(markdown, oss) {
 	return {
 		markdown: rewriteImageUrls(markdown, mapping),
 		uploaded: Object.keys(mapping).length,
-		failed,
+		failed: errors.length,
+		errors,
 	};
 }
 
@@ -134,9 +184,16 @@ export async function clip({ tabId, tags } = {}) {
 		const settings = await loadSettings();
 		const article = await collectArticle(tabId);
 
-		let images = { markdown: article.markdown, uploaded: 0, failed: 0 };
+		let images = { markdown: article.markdown, uploaded: 0, failed: 0, errors: [] };
 		if (isOssConfigured(settings.oss)) {
 			images = await mirrorImages(article.markdown, settings.oss);
+			// popup 一关就没了，落盘一份让设置页能回看
+			await saveImageReport({
+				url: article.url,
+				uploaded: images.uploaded,
+				failed: images.failed,
+				errors: images.errors.slice(0, MAX_KEPT_ERRORS),
+			});
 		}
 
 		const content = buildNoteContent({
@@ -164,7 +221,11 @@ export async function clip({ tabId, tags } = {}) {
 			title: content.split('\n', 1)[0],
 			chars: content.length,
 			tags: noteData.tags,
-			images: { uploaded: images.uploaded, failed: images.failed },
+			images: {
+				uploaded: images.uploaded,
+				failed: images.failed,
+				reason: images.errors?.[0]?.reason ?? '',
+			},
 		};
 	} catch (err) {
 		await flashBadge(false);

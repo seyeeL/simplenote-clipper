@@ -1,5 +1,5 @@
 import { completeLogin, requestLoginCode } from './lib/simperium.js';
-import { clearAuth, loadAuth, loadSettings, saveAuth, saveSettings } from './storage.js';
+import { clearAuth, loadAuth, loadImageReport, loadSettings, saveAuth, saveSettings } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -125,6 +125,28 @@ $('save-oss').addEventListener('click', async () => {
 	setStatus('oss-status', '已保存。', 'ok');
 });
 
+$('probe-oss').addEventListener('click', async () => {
+	$('probe-oss').disabled = true;
+	setStatus('oss-status', '正在传一张 1×1 测试图…');
+	// 先把当前表单存下来，否则测的是上次保存的旧配置
+	await saveSettings({ oss: { ...readOssFields(), enabled: $('oss-enabled').checked } });
+	const result = await chrome.runtime.sendMessage({ type: 'probe-oss' });
+	$('probe-oss').disabled = false;
+	setStatus('oss-status', result?.message ?? '没有返回结果。', result?.ok ? 'ok' : 'err');
+});
+
+async function renderImageReport() {
+	const report = await loadImageReport();
+	$('oss-report').classList.toggle('hidden', !report);
+	if (!report) return;
+	const when = report.at ? new Date(report.at).toLocaleString() : '';
+	$('oss-report-summary').textContent =
+		`${when}　成功 ${report.uploaded} 张，失败 ${report.failed} 张${report.url ? `　${report.url}` : ''}`;
+	$('oss-report-errors').textContent = report.errors?.length
+		? report.errors.map((e) => (e.url ? `${e.url}\n  → ${e.reason}` : e.reason)).join('\n\n')
+		: '（没有失败）';
+}
+
 $('save-settings').addEventListener('click', async () => {
 	await saveSettings({
 		defaultTags: $('default-tags').value,
@@ -137,3 +159,4 @@ $('save-settings').addEventListener('click', async () => {
 await renderAuth();
 await renderSettings();
 await renderOss();
+await renderImageReport();

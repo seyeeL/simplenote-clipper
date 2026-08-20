@@ -91,6 +91,22 @@ created: 2026-08-20
 **密钥**：AccessKey 存在本机 `chrome.storage.local`。建议用只有 `oss:PutObject` 权限、
 并且限定到这个 bucket 和路径前缀的 RAM 子账号，别用主账号密钥。
 
+### 传不上去怎么查
+
+设置页的**「测试上传」**按钮会传一张 1×1 PNG，按顺序验三件事：配置全不全、有没有拿到
+跨域权限、OSS 收不收。OSS 的错误码原样带出来，并附上下一步该做什么：
+
+| OSS 错误码 | 意思 |
+|-----------|------|
+| `InvalidAccessKeyId` | AccessKey ID 填错了，或者已被删除 |
+| `SignatureDoesNotMatch` | Secret 不对，或者 bucket / region 和密钥不属于同一个账号 |
+| `AccessDenied` | 密钥有效但没写权限，给 RAM 子账号加 `oss:PutObject`，确认授权路径覆盖了填的前缀 |
+| `NoSuchBucket` | Bucket 不存在，或者 region 填错（bucket 和 region 必须对得上） |
+| `RequestTimeTooSkewed` | 本机时钟和 OSS 差太多，校准系统时间 |
+
+设置页底部还会显示**最近一次剪藏**的图床结果：成功几张、失败几张、每张的失败原因。
+popup 关掉就没了，这份是落盘的。
+
 ## 接口
 
 | 用途 | 端点 |

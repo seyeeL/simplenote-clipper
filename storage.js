@@ -3,6 +3,7 @@
 
 const AUTH_KEY = 'auth';
 const SETTINGS_KEY = 'settings';
+const IMAGE_REPORT_KEY = 'lastImageReport';
 
 const DEFAULT_SETTINGS = {
 	defaultTags: 'clip',
@@ -43,6 +44,16 @@ export async function loadSettings() {
 	const saved = stored[SETTINGS_KEY] ?? {};
 	// oss 是嵌套对象，浅合并会让新增字段丢默认值
 	return { ...DEFAULT_SETTINGS, ...saved, oss: { ...DEFAULT_SETTINGS.oss, ...(saved.oss ?? {}) } };
+}
+
+/** 最近一次剪藏的图床结果。popup 一关就没了，落盘一份让设置页能回看。 */
+export async function loadImageReport() {
+	const stored = await chrome.storage.local.get(IMAGE_REPORT_KEY);
+	return stored[IMAGE_REPORT_KEY] ?? null;
+}
+
+export async function saveImageReport(report) {
+	await chrome.storage.local.set({ [IMAGE_REPORT_KEY]: { ...report, at: new Date().toISOString() } });
 }
 
 export async function saveSettings(patch) {

@@ -6,8 +6,10 @@ import {
 	buildObjectKey,
 	buildStringToSign,
 	canonicalizedOssHeaders,
+	hintForOssCode,
 	hmacSha1Base64,
 	isOssConfigured,
+	parseOssError,
 	ossHost,
 	presignPutUrl,
 	publicUrl,
@@ -165,4 +167,39 @@ test('配置缺一项就不算配好，缺了直接走原图链接', () => {
 		assert.equal(isOssConfigured({ ...full, [key]: '' }), false, `缺 ${key} 应判未配置`);
 	}
 	assert.equal(isOssConfigured(undefined), false);
+});
+
+test('解析 OSS 错误 XML —— service worker 里没有 DOMParser，只能正则取', () => {
+	const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Error>
+  <Code>InvalidAccessKeyId</Code>
+  <Message>The OSS Access Key Id you provided does not exist in our records.</Message>
+  <RequestId>6A869ECDC0CBF532396DADF7</RequestId>
+</Error>`;
+	const parsed = parseOssError(xml);
+	assert.equal(parsed.code, 'InvalidAccessKeyId');
+	assert.match(parsed.message, /does not exist/);
+	assert.equal(parsed.stringToSign, '');
+});
+
+test('SignatureDoesNotMatch 会回显 OSS 自己算的 StringToSign，要能取出来', () => {
+	const xml = `<Error><Code>SignatureDoesNotMatch</Code><Message>nope</Message>` +
+		`<StringToSign>PUT\n\nimage/png\n1755000300\n/b/k.png</StringToSign></Error>`;
+	const parsed = parseOssError(xml);
+	assert.equal(parsed.code, 'SignatureDoesNotMatch');
+	// 拿它和本地拼的对比，就能看出签名差在哪一段
+	assert.equal(parsed.stringToSign, 'PUT\n\nimage/png\n1755000300\n/b/k.png');
+});
+
+test('响应体不是 XML 或是空的也不炸', () => {
+	assert.deepEqual(parseOssError(''), { code: '', message: '', stringToSign: '' });
+	assert.deepEqual(parseOssError(null), { code: '', message: '', stringToSign: '' });
+	assert.deepEqual(parseOssError('<html>502</html>'), { code: '', message: '', stringToSign: '' });
+});
+
+test('每个 OSS 错误码都给出下一步怎么做', () => {
+	for (const code of ['InvalidAccessKeyId', 'SignatureDoesNotMatch', 'AccessDenied', 'NoSuchBucket']) {
+		assert.ok(hintForOssCode(code).length > 0, `${code} 缺少排查提示`);
+	}
+	assert.equal(hintForOssCode('SomethingNew'), '');
 });

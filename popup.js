@@ -44,7 +44,10 @@ async function init() {
 		if (result?.ok) {
 			const parts = [`已存入 Simplenote（${result.chars} 字符）`];
 			if (result.images?.uploaded) parts.push(`图片转存 ${result.images.uploaded} 张`);
-			if (result.images?.failed) parts.push(`${result.images.failed} 张失败，保留原链接`);
+			if (result.images?.failed) {
+				// 只说「N 张失败」等于什么都没说，把第一条原因带出来
+				parts.push(`${result.images.failed} 张失败：${result.images.reason || '原因见设置页'}`);
+			}
 			if (result.tags?.length) parts.push(`标签 ${result.tags.join(' ')}`);
 			setStatus(parts.join('　'), 'ok');
 		} else {

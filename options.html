@@ -46,12 +46,23 @@
   .row label { margin: 0; }
   .hidden { display: none; }
   code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }
+  pre {
+    background: #f3f4f6;
+    border-radius: 5px;
+    padding: 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 260px;
+    overflow: auto;
+  }
   @media (prefers-color-scheme: dark) {
     body { background: #1f2124; color: #e5e7eb; }
     section { border-color: #3f444a; }
     p.hint, label { color: #9ca3af; }
     input[type="text"], input[type="email"] { background: #2a2d31; border-color: #3f444a; color: #e5e7eb; }
-    code { background: #2a2d31; }
+    code, pre { background: #2a2d31; }
   }
 </style>
 </head>
@@ -138,8 +149,15 @@
       <input type="text" id="oss-domain" autocomplete="off" spellcheck="false" placeholder="https://img.example.com">
 
       <button id="save-oss">保存图床设置</button>
+      <button id="probe-oss" class="ghost" style="color:inherit">测试上传</button>
     </div>
     <div class="status" id="oss-status"></div>
+
+    <div id="oss-report" class="hidden">
+      <h2 style="margin-top:20px">最近一次剪藏的图床结果</h2>
+      <p class="hint" id="oss-report-summary"></p>
+      <pre id="oss-report-errors"></pre>
+    </div>
   </section>
 
   <script type="module" src="options.js"></script>
