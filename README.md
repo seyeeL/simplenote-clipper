@@ -23,30 +23,36 @@ Chrome / Edge MV3 扩展：提取当前网页正文，转成 Markdown，直接�
 - 点扩展图标 → 改标签（可选）→「剪藏本页」
 - 或在页面上右键 →「剪藏到 Simplenote」，用设置里的默认标签
 
-写进 Simplenote 的笔记长这样。第一行是标题 —— Simplenote 按第一行给笔记命名，
-所以 frontmatter 不能顶格，顶格写 `---` 会让每条笔记在列表里都叫「---」：
+写进 Simplenote 的笔记长这样：
 
 ```
 文章标题
+---
 
----
-url: https://example.com/article
-published: 2026-08-01
-created: 2026-08-20
----
+url: https://example.com/article 
+author: 某某 
+published: 2026-08-01 
+created: 2026-08-20 
 
 ## 小节标题
 
 正文段落，**行内标记**、[链接](https://example.com)、列表、代码块、表格都会保留。
 ```
 
-笔记默认打上 `markdown` 这个 systemTag，Simplenote 客户端里会按 Markdown 渲染。
+三个看着别扭但都是有原因的地方：
 
-设置里可以把第一行改成 `# 标题`（默认关闭）。默认关是因为 Simplenote 的笔记列表直接
-显示第一行原文，开了会连 `#` 一起显示；想让笔记正文本身是规范 Markdown 就打开它。
+- **第一行是纯标题，`---` 在第二行。** Simplenote 的笔记列表直接显示第一行，顶格写
+  `---` 会让每条笔记都叫「---」。放在标题下面正好是 markdown 的 setext 一级标题写法：
+  预览里是 H1，列表里仍然是干净的标题。
+- **属性区没有收尾的 `---`**，因为不需要，留着预览里会多一条横线。
+- **每行属性末尾有一个空格。** Simplenote 的预览会把连续几行并成一段，加空格才逐行断开。
+
+设置里可以把第一行改成 `# 标题`（默认关闭），开了就不再补 `---`，免得一个标题套两种写法。
 
 正文开头如果有和标题一模一样的 heading（大部分文章页的 `<h1>` 就是标题），会被去掉，
 不然笔记里会连着出现两行标题。不一致的 heading 保留 —— 那是文章自己的小节标题。
+
+笔记默认打上 `markdown` 这个 systemTag，Simplenote 客户端里会按 Markdown 渲染。
 
 ### 标签
 
@@ -63,7 +69,8 @@ created: 2026-08-20
 | `zhuanlan.zhihu.com/p/1` | `知乎` |
 | `blog.example.com/a` | `blog.example.com` |
 
-作者和站点只进标签，不进 frontmatter。
+作者两边都留：属性区里是原样的名字，标签里空格换成连字符（`John Smith` → `John-Smith`），
+因为 Simplenote 按空格切标签。站点只进标签。
 
 ## 图床（可选）
 

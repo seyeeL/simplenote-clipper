@@ -67,24 +67,71 @@ test('toDateString 吃 ISO / Date / 时间戳，解析不出来就原样返回',
 	assert.equal(toDateString(null), '');
 });
 
-test('第一行只放标题 —— Simplenote 按第一行显示笔记名，frontmatter 不能顶格', () => {
+test('第一行是纯标题，第二行紧跟 --- —— setext 写法，预览是 H1，列表显示的仍是纯标题', () => {
 	const content = buildNoteContent({
 		title: '标题\n带换行',
 		url: 'https://example.com/a',
 		markdown: '正文',
 		clippedAt: new Date(2026, 7, 20),
 	});
-	assert.equal(content.split('\n')[0], '标题 带换行');
-	assert.equal(content.split('\n')[1], '');
-	assert.equal(content.split('\n')[2], '---');
+	const lines = content.split('\n');
+	assert.equal(lines[0], '标题 带换行');
+	assert.equal(lines[1], '---');
+	assert.equal(lines[2], '');
 });
 
-test('titleHeading 开关控制第一行要不要写成 # 标题，默认关闭', () => {
+test('titleHeading 开着时用 # 标题，就不再补 ---，免得一个标题套两种写法', () => {
 	const base = { title: '标题', url: 'https://a.b', markdown: '正文', clippedAt: new Date(2026, 7, 20) };
-	assert.equal(buildNoteContent(base).split('\n')[0], '标题');
-	assert.equal(buildNoteContent({ ...base, titleHeading: true }).split('\n')[0], '# 标题');
-	// 开着的时候 frontmatter 位置不变
-	assert.equal(buildNoteContent({ ...base, titleHeading: true }).split('\n')[2], '---');
+	const lines = buildNoteContent({ ...base, titleHeading: true }).split('\n');
+	assert.equal(lines[0], '# 标题');
+	assert.equal(lines[1], '');
+	assert.ok(!lines.includes('---'));
+});
+
+test('属性区没有收尾的 ---', () => {
+	const content = buildNoteContent({
+		title: 'T',
+		url: 'https://a.b',
+		markdown: '正文',
+		clippedAt: new Date(2026, 7, 20),
+	});
+	// 只有标题下面那一条 setext 横线
+	assert.equal(content.split('\n').filter((l) => l === '---').length, 1);
+});
+
+test('每行属性末尾留一个空格 —— 否则 Simplenote 预览会把连续行并成一段', () => {
+	const content = buildNoteContent({
+		title: 'T',
+		url: 'https://a.b',
+		author: '张三',
+		publishedAt: '2019-12-26',
+		markdown: '正文',
+		clippedAt: new Date(2026, 7, 20),
+	});
+	for (const line of content.split('\n').filter((l) => /^(url|author|published|created):/.test(l))) {
+		assert.ok(line.endsWith(' '), `${JSON.stringify(line)} 末尾少了空格`);
+		assert.ok(!line.endsWith('  '), `${JSON.stringify(line)} 末尾空格多了`);
+	}
+});
+
+test('作者排在 url 后面，同时也进标签', () => {
+	const content = buildNoteContent({
+		title: 'T',
+		url: 'https://a.b',
+		author: '  李  四 ',
+		markdown: '正文',
+		clippedAt: new Date(2026, 7, 20),
+	});
+	const keys = content.split('\n').filter((l) => l.includes(': ')).map((l) => l.split(':')[0]);
+	assert.deepEqual(keys, ['url', 'author', 'created']);
+	assert.ok(content.includes('author: 李 四 \n'));
+	// 标签那份把空格换成连字符，两处不是同一个形态
+	assert.deepEqual(buildTags({ author: '李  四', url: 'https://a.b' }), ['李-四', 'a.b']);
+});
+
+test('没抓到作者就不写 author 行，不留空值', () => {
+	const content = buildNoteContent({ title: 'T', url: 'https://a.b', clippedAt: new Date(2026, 7, 20) });
+	assert.ok(!content.includes('author:'));
 });
 
 test('正文开头和标题重复的 heading 去掉，不留两行标题', () => {
@@ -114,24 +161,25 @@ test('去重比较忽略空白差异，但不做模糊匹配', () => {
 	assert.equal(stripDuplicateHeading('# 标题', ''), '# 标题');
 });
 
-test('frontmatter 是 url / published / created 三行', () => {
+test('整篇的最终形状', () => {
 	const content = buildNoteContent({
-		title: 'T',
-		url: 'https://weibo.com/1088413295/5113631702256640',
-		publishedAt: '2024-12-20',
+		title: '2019年，我的极简高效生活管理法',
+		url: 'https://mp.weixin.qq.com/s/A4wmSktp8Zbui2CB8th_CA',
+		author: 'Lachel',
+		publishedAt: '2019-12-26',
 		markdown: '正文',
 		clippedAt: new Date(2026, 7, 20),
 	});
 	assert.equal(
 		content,
 		[
-			'T',
+			'2019年，我的极简高效生活管理法',
+			'---',
 			'',
-			'---',
-			'url: https://weibo.com/1088413295/5113631702256640',
-			`published: ${toDateString('2024-12-20')}`,
-			'created: 2026-08-20',
-			'---',
+			'url: https://mp.weixin.qq.com/s/A4wmSktp8Zbui2CB8th_CA ',
+			'author: Lachel ',
+			'published: 2019-12-26 ',
+			'created: 2026-08-20 ',
 			'',
 			'正文',
 		].join('\n'),
@@ -149,15 +197,13 @@ test('发布日期抓不到时省略 published 行，不写空值', () => {
 	assert.ok(content.includes('created: 2026-08-20'));
 });
 
-test('作者和站点不进 frontmatter —— 它们是标签', () => {
+test('站点只进标签，不进属性区', () => {
 	const content = buildNoteContent({
 		title: 'T',
 		url: 'https://a.b',
-		author: '张三',
 		siteName: '某站',
 		markdown: '正文',
 	});
-	assert.ok(!content.includes('张三'));
 	assert.ok(!content.includes('某站'));
 });
 
