@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>剪藏到 Simplenote</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    width: 300px;
+    margin: 0;
+    padding: 14px;
+    font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #fff;
+    color: #1f2937;
+  }
+  h1 { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+  .page-title {
+    margin-bottom: 12px;
+    color: #4b5563;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  label { display: block; margin-bottom: 4px; color: #6b7280; font-size: 12px; }
+  input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 5px;
+    font: inherit;
+  }
+  button {
+    width: 100%;
+    margin-top: 12px;
+    padding: 8px;
+    border: 0;
+    border-radius: 5px;
+    background: #3361cc;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { background: #9ca3af; cursor: default; }
+  .status { margin-top: 10px; min-height: 18px; font-size: 12px; }
+  .status.ok { color: #15803d; }
+  .status.err { color: #b91c1c; }
+  .footer { margin-top: 12px; font-size: 12px; }
+  a { color: #3361cc; }
+  .hidden { display: none; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1f2124; color: #e5e7eb; }
+    .page-title { color: #9ca3af; }
+    input[type="text"] { background: #2a2d31; border-color: #3f444a; color: #e5e7eb; }
+  }
+</style>
+</head>
+<body>
+  <h1>剪藏到 Simplenote</h1>
+  <div class="page-title" id="page-title">读取当前页…</div>
+
+  <div id="login-hint" class="hidden">
+    还没登录 Simplenote。<a href="#" id="open-options-inline">去设置页登录</a>
+  </div>
+
+  <div id="clip-form" class="hidden">
+    <label for="tags">标签（空格或逗号分隔）</label>
+    <input type="text" id="tags" autocomplete="off" spellcheck="false">
+    <button id="clip">剪藏本页</button>
+  </div>
+
+  <div class="status" id="status"></div>
+  <div class="footer"><a href="#" id="open-options">设置</a></div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

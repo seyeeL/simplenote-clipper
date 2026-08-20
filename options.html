@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Simplenote 剪藏 · 设置</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    max-width: 520px;
+    margin: 32px auto;
+    padding: 0 20px;
+    font: 14px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #fff;
+    color: #1f2937;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 28px 0 8px; }
+  p.hint { margin: 0 0 16px; color: #6b7280; font-size: 13px; }
+  section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  label { display: block; margin: 10px 0 4px; font-size: 13px; color: #4b5563; }
+  input[type="text"], input[type="email"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 9px;
+    border: 1px solid #d1d5db;
+    border-radius: 5px;
+    font: inherit;
+  }
+  button {
+    margin-top: 12px;
+    padding: 7px 14px;
+    border: 0;
+    border-radius: 5px;
+    background: #3361cc;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+  }
+  button.ghost { background: transparent; color: #b91c1c; border: 1px solid #d1d5db; }
+  button:disabled { background: #9ca3af; cursor: default; }
+  .status { margin-top: 10px; min-height: 20px; font-size: 13px; }
+  .status.ok { color: #15803d; }
+  .status.err { color: #b91c1c; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row input[type="checkbox"] { margin: 0; }
+  .row label { margin: 0; }
+  .hidden { display: none; }
+  code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1f2124; color: #e5e7eb; }
+    section { border-color: #3f444a; }
+    p.hint, label { color: #9ca3af; }
+    input[type="text"], input[type="email"] { background: #2a2d31; border-color: #3f444a; color: #e5e7eb; }
+    code { background: #2a2d31; }
+  }
+</style>
+</head>
+<body>
+  <h1>Simplenote 剪藏</h1>
+  <p class="hint">登录走 Simplenote 官方的邮箱验证码，密码不经过这个扩展。token 只存在本机 <code>chrome.storage.local</code>。</p>
+
+  <section>
+    <h2>账号</h2>
+
+    <div id="logged-out">
+      <label for="email">Simplenote 邮箱</label>
+      <input type="email" id="email" autocomplete="username" spellcheck="false">
+      <button id="send-code">发送验证码</button>
+
+      <div id="code-row" class="hidden">
+        <label for="code">邮箱收到的验证码</label>
+        <input type="text" id="code" autocomplete="one-time-code" spellcheck="false">
+        <button id="login">登录</button>
+      </div>
+    </div>
+
+    <div id="logged-in" class="hidden">
+      <p>已登录：<strong id="username"></strong></p>
+      <button id="logout" class="ghost">退出登录</button>
+    </div>
+
+    <div class="status" id="auth-status"></div>
+  </section>
+
+  <section>
+    <h2>剪藏默认值</h2>
+    <label for="default-tags">默认标签（空格或逗号分隔）</label>
+    <input type="text" id="default-tags" autocomplete="off" spellcheck="false">
+    <div class="row" style="margin-top:12px">
+      <input type="checkbox" id="pinned">
+      <label for="pinned">剪藏后在 Simplenote 里置顶</label>
+    </div>
+    <button id="save-settings">保存</button>
+    <div class="status" id="settings-status"></div>
+  </section>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Simplenote 剪藏",
+  "version": "0.1.0",
+  "description": "提取网页正文转成 Markdown，一键存进 Simplenote",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "https://app.simplenote.com/*",
+    "https://api.simperium.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "剪藏到 Simplenote",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "lib/extract.js",
+        "lib/html2md.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
