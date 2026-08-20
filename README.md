@@ -98,12 +98,19 @@ created: 2026-08-20
 - **对象名是内容哈希**（`<前缀>/<年-月>/<sha256 前 16 位>.<后缀>`）。同一张图重复剪藏不会
   传两份，也不会因为原站文件名撞车而互相覆盖。
 - **单张失败就保留原链接**，不让整次剪藏失败。少一张图的笔记比没有笔记有用。
-- **抓图不发 Referer**。扩展 service worker 默认就不发，防盗链站点反而给原图。
+- **默认不发 Referer**，扩展 service worker 本来就不发，微信这类防盗链站点反而给原图。
+  微博相反：sinaimg 认的是「浏览器 UA + 没有 Referer」这个组合，实测 curl 裸请求 200，
+  换 Chrome UA 立刻 403，补上 `Referer: https://weibo.com/` 又回到 200。`Referer` 是 fetch
+  的禁止头改不了，所以抓图期间临时装一条 `declarativeNetRequest` 会话规则把它补上，抓完撤掉。
+  规则限定在 `tabIds: [-1]`（service worker 自己发的请求），不碰你正在看的页面。
+  哪个站点要补什么 Referer 写在 `lib/site-rules.js` 的 `imageReferer` / `imageHosts` 里。
 - 单张超过 10 MB 跳过；同时最多传 4 张。
 - bucket 不需要配 CORS 规则：扩展拿到 host 权限后发请求不受 CORS 限制。
 
 **权限**：抓任意站点的图需要跨域读取权限，这是个可选权限（`optional_host_permissions`），
 只在设置页勾选「启用图床」时才向你申请。不用图床的话，装扩展不需要授权全站访问。
+改 Referer 用的是 `declarativeNetRequestWithHostAccess`，它只能作用在你已经授权的站点上，
+装扩展时不会多出授权弹窗。
 
 **密钥**：AccessKey 存在本机 `chrome.storage.local`。建议用只有 `oss:PutObject` 权限、
 并且限定到这个 bucket 和路径前缀的 RAM 子账号，别用主账号密钥。

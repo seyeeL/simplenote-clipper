@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex } from '../lib/images.js';
+import { buildRefererRules, collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex } from '../lib/images.js';
 
 test('收集正文里的图片地址，按出现顺序去重', () => {
 	const md = '![a](https://x/1.png)\n\n文字\n\n![b](https://x/2.jpg)\n\n![c](https://x/1.png)';
@@ -68,4 +68,42 @@ test('sha256Hex 输出 64 位十六进制，同样内容同样结果', async () 
 	assert.match(hex, /^[0-9a-f]{64}$/);
 	// 已知向量：sha256("hello")
 	assert.equal(hex, '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824');
+});
+
+const weiboRule = { imageReferer: 'https://weibo.com/', imageHosts: ['sinaimg.cn'] };
+
+test('要 Referer 的站点生成一条会话规则', () => {
+	const [rule, ...rest] = buildRefererRules(weiboRule, 1);
+	assert.equal(rest.length, 0);
+	assert.equal(rule.id, 1);
+	assert.deepEqual(rule.action.requestHeaders, [
+		{ header: 'Referer', operation: 'set', value: 'https://weibo.com/' },
+	]);
+	assert.equal(rule.condition.urlFilter, '||sinaimg.cn^');
+});
+
+test('规则只作用于 service worker 自己发的请求', () => {
+	// tabIds -1 = 不属于任何标签页。少了这条会连用户正在看的页面上的请求一起改
+	const [rule] = buildRefererRules(weiboRule, 1);
+	assert.deepEqual(rule.condition.tabIds, [-1]);
+});
+
+test('resourceTypes 覆盖 fetch 可能被归到的类型', () => {
+	// 归错类型规则会静默不生效，图还是 403，很难查
+	const [rule] = buildRefererRules(weiboRule, 1);
+	assert.ok(rule.condition.resourceTypes.includes('xmlhttprequest'));
+	assert.ok(rule.condition.resourceTypes.includes('other'));
+});
+
+test('多个图片域名各给一条，id 顺着排', () => {
+	const rules = buildRefererRules({ imageReferer: 'https://x.com/', imageHosts: ['a.com', 'b.com'] }, 7);
+	assert.deepEqual(rules.map((r) => r.id), [7, 8]);
+	assert.deepEqual(rules.map((r) => r.condition.urlFilter), ['||a.com^', '||b.com^']);
+});
+
+test('没配 Referer 的站点不生成规则', () => {
+	assert.deepEqual(buildRefererRules({ imageHosts: ['a.com'] }), []);
+	assert.deepEqual(buildRefererRules({ imageReferer: 'https://x.com/' }), []);
+	assert.deepEqual(buildRefererRules(null), []);
+	assert.deepEqual(buildRefererRules(undefined), []);
 });
