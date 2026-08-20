@@ -1,4 +1,5 @@
 import { completeLogin, requestLoginCode } from './lib/simperium.js';
+import { createRequestGate } from './lib/throttle.js';
 import { clearAuth, loadAuth, loadImageReport, loadSettings, saveAuth, saveSettings } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
@@ -23,46 +24,67 @@ async function renderSettings() {
 	$('title-heading').checked = Boolean(settings.titleHeading);
 }
 
+// 两次请求之间至少隔这么久。连点时多余的点击直接丢掉，不发请求。
+const REQUEST_INTERVAL_MS = 3000;
+const sendCodeGate = createRequestGate(REQUEST_INTERVAL_MS);
+const loginGate = createRequestGate(REQUEST_INTERVAL_MS);
+
 $('send-code').addEventListener('click', async () => {
-	const email = $('email').value.trim();
-	if (!email) {
-		setStatus('auth-status', '先填邮箱。', 'err');
+	if (!sendCodeGate.tryAcquire()) {
+		setStatus('auth-status', `别连点，${Math.ceil(sendCodeGate.waitMs() / 1000)} 秒后再试。`, 'err');
 		return;
 	}
-	$('send-code').disabled = true;
-	setStatus('auth-status', '发送中…');
 	try {
-		await requestLoginCode(email);
-		$('code-row').classList.remove('hidden');
-		$('code').focus();
-		setStatus('auth-status', `验证码已发到 ${email}，查收后填下面。`, 'ok');
-	} catch (err) {
-		setStatus('auth-status', err.message, 'err');
+		const email = $('email').value.trim();
+		if (!email) {
+			setStatus('auth-status', '先填邮箱。', 'err');
+			return;
+		}
+		$('send-code').disabled = true;
+		setStatus('auth-status', '发送中…');
+		try {
+			await requestLoginCode(email);
+			$('code-row').classList.remove('hidden');
+			$('code').focus();
+			setStatus('auth-status', `验证码已发到 ${email}，查收后填下面。`, 'ok');
+		} catch (err) {
+			setStatus('auth-status', err.message, 'err');
+		} finally {
+			$('send-code').disabled = false;
+		}
 	} finally {
-		$('send-code').disabled = false;
+		sendCodeGate.release();
 	}
 });
 
 $('login').addEventListener('click', async () => {
-	const email = $('email').value.trim();
-	const code = $('code').value.trim();
-	if (!code) {
-		setStatus('auth-status', '先填验证码。', 'err');
+	if (!loginGate.tryAcquire()) {
+		setStatus('auth-status', `别连点，${Math.ceil(loginGate.waitMs() / 1000)} 秒后再试。`, 'err');
 		return;
 	}
-	$('login').disabled = true;
-	setStatus('auth-status', '登录中…');
 	try {
-		const auth = await completeLogin(email, code);
-		await saveAuth(auth);
-		$('code').value = '';
-		$('code-row').classList.add('hidden');
-		await renderAuth();
-		setStatus('auth-status', '登录成功，可以开始剪藏了。', 'ok');
-	} catch (err) {
-		setStatus('auth-status', err.message, 'err');
+		const email = $('email').value.trim();
+		const code = $('code').value.trim();
+		if (!code) {
+			setStatus('auth-status', '先填验证码。', 'err');
+			return;
+		}
+		$('login').disabled = true;
+		setStatus('auth-status', '登录中…');
+		try {
+			const auth = await completeLogin(email, code);
+			await saveAuth(auth);
+			$('code').value = '';
+			$('code-row').classList.add('hidden');
+			await renderAuth();
+			setStatus('auth-status', '登录成功，可以开始剪藏了。', 'ok');
+		} catch (err) {
+			setStatus('auth-status', err.message, 'err');
+		} finally {
+			$('login').disabled = false;
+		}
 	} finally {
-		$('login').disabled = false;
+		loginGate.release();
 	}
 });
 

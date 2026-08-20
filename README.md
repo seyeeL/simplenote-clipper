@@ -143,6 +143,7 @@ popup 关掉就没了，这份是落盘的。
 | `lib/images.js` | 正文里图片链接的收集与替换、后缀判定、内容哈希 |
 | `lib/oss.js` | 阿里云 OSS 签名与上传 |
 | `lib/simperium.js` | 登录与写入的 HTTP 客户端，错误统一包成 `SimperiumError` |
+| `lib/throttle.js` | 请求节流闸门，挡住连点重复发请求 |
 | `storage.js` | `chrome.storage.local` 封装。**故意不放 lib/**，那个目录是 web accessible 的 |
 | `background.js` | service worker：注入抓取 → 拼正文 → POST。放这里是因为 popup 一关 fetch 就断 |
 | `popup.*` / `options.*` | 剪藏面板 / 登录与默认值设置 |
@@ -204,3 +205,5 @@ node tools/probe.mjs "<url>" --show   # 开真窗口，不用 headless
 - **图床只支持阿里云 OSS**。腾讯 COS、七牛这些签名方式不同，没做。
 - **不做划词剪藏**。当前只有整页正文一条路径。
 - **受限页面剪不了**：`chrome://`、扩展商店、PDF 阅读器不允许注入脚本，会提示换页面。
+- **发验证码和登录做了 3 秒节流**。只在请求进行中禁用按钮挡不住连点：请求一返回按钮
+  立刻又能按，几下就撞上 Simplenote 的 429。节流从上一次请求**结束**算起。
