@@ -52,7 +52,10 @@
     cursor: pointer;
   }
   button:disabled { background: #9ca3af; cursor: default; }
-  .status { margin-top: 10px; min-height: 18px; font-size: 12px; }
+  /* overflow-wrap：状态行里拼着长 URL 和失败原因，不断行会把 popup 撑破 */
+  .status { margin-top: 10px; min-height: 18px; font-size: 12px; overflow-wrap: anywhere; }
+  /* 没内容时连位置都不占 */
+  .status:empty { display: none; }
   .status.ok { color: #15803d; }
   .status.err { color: #b91c1c; }
   .footer { margin-top: 12px; font-size: 12px; }
