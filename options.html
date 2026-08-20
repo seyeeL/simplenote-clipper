@@ -16,7 +16,10 @@
   h1 { font-size: 18px; margin: 0 0 4px; }
   h2 { font-size: 14px; margin: 8px 0; }
   p.hint { margin: 0 0 16px; color: #6b7280; font-size: 13px; }
-  section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  /* 状态行和图床报告里会拼进 URL，长地址不断行会把卡片撑破、页面横向滚动。
+     anywhere 只在一行放不下时才在任意位置断，普通词还是整词换行 */
+  p.hint, .status { overflow-wrap: anywhere; }
+  section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px 16px 24px; margin-bottom: 16px; }
   label { display: block; margin: 10px 0 4px; font-size: 13px; color: #4b5563; }
   input[type="text"], input[type="email"] {
     width: 100%;
@@ -39,6 +42,8 @@
   button.ghost { background: transparent; color: #b91c1c; border: 1px solid #d1d5db; }
   button:disabled { background: #9ca3af; cursor: default; }
   .status { margin-top: 10px; min-height: 20px; font-size: 13px; }
+  /* 没内容时连位置都不占，别在页面上留一块空白 */
+  .status:empty { display: none; }
   .status.ok { color: #15803d; }
   .status.err { color: #b91c1c; }
   .row { display: flex; align-items: center; gap: 8px; }
