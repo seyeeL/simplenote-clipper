@@ -46,7 +46,8 @@ function bundle() {
 		readFileSync(join(REPO, rel), 'utf8')
 			.replace(/^import .*$/gm, '')
 			.replace(/^export /gm, '');
-	return `${strip('lib/html2md.js')}\n${strip('lib/extract.js')}`;
+	// site-rules 在最前：extract.js 依赖它
+	return [strip('lib/site-rules.js'), strip('lib/html2md.js'), strip('lib/extract.js')].join('\n');
 }
 
 function cdp(ws) {

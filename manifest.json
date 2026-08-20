@@ -36,7 +36,8 @@
     {
       "resources": [
         "lib/extract.js",
-        "lib/html2md.js"
+        "lib/html2md.js",
+        "lib/site-rules.js"
       ],
       "matches": [
         "<all_urls>"
