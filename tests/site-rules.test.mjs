@@ -148,3 +148,57 @@ test('stripText 配的是正则，不是字符串', () => {
 		}
 	}
 });
+
+/** publishedFrom 只用 querySelectorAll('script') 和 textContent，手搓就够。 */
+function scriptDoc(...texts) {
+	return { querySelectorAll: () => texts.map((t) => ({ textContent: t })) };
+}
+
+test('小红书从 __INITIAL_STATE__ 里取绝对时间', () => {
+	// 页面上只有「6天前」，JSON-LD 的 datePublished 是页面渲染时间（假的）
+	const state =
+		'window.__INITIAL_STATE__={"feed":{"feeds":[{"time":1700000000000}]},' +
+		'"note":{"noteDetailMap":{"6a7dd7f7":{"note":{"time":1786632183000}}}}}';
+	const doc = scriptDoc('console.log(1)', state);
+	assert.equal(
+		xhs.publishedFrom(doc, 'https://www.xiaohongshu.com/explore/6a7dd7f7?xsec_token=x'),
+		new Date(1786632183000).toISOString(),
+	);
+});
+
+test('推荐流里的时间在前面也不会被捡走', () => {
+	// 锚到 noteDetailMap 再往后找，就是为了跳过 feed 里别人的时间
+	const state =
+		'window.__INITIAL_STATE__={"feed":{"time":1700000000000},' +
+		'"note":{"noteDetailMap":{"x":{"note":{"time":1786632183000}}}}}';
+	const got = xhs.publishedFrom(scriptDoc(state), 'https://www.xiaohongshu.com/explore/x');
+	assert.notEqual(got, new Date(1700000000000).toISOString());
+	assert.equal(got, new Date(1786632183000).toISOString());
+});
+
+test('noteDetailMap 不在时退回按笔记 id 定位', () => {
+	const state = 'window.__INITIAL_STATE__={"other":{"time":1700000000000},"6a7dd7f7":{"time":1786632183000}}';
+	assert.equal(
+		xhs.publishedFrom(scriptDoc(state), 'https://www.xiaohongshu.com/explore/6a7dd7f7'),
+		new Date(1786632183000).toISOString(),
+	);
+});
+
+test('取不到时间就交给下一个来源，不返回瞎猜的值', () => {
+	assert.equal(xhs.publishedFrom(scriptDoc('var a = 1'), 'https://www.xiaohongshu.com/explore/x'), '');
+	assert.equal(xhs.publishedFrom(scriptDoc(), 'https://www.xiaohongshu.com/explore/x'), '');
+	// 有 state 但没有 time 字段
+	assert.equal(
+		xhs.publishedFrom(scriptDoc('window.__INITIAL_STATE__={"noteDetailMap":{}}'), 'https://x.com/a'),
+		'',
+	);
+	// URL 不是合法地址也不能炸
+	assert.equal(xhs.publishedFrom(scriptDoc('window.__INITIAL_STATE__={"time":1786632183000}'), '不是 URL'), '');
+	// 页面结构没了还有页面上那个相对时间兜底
+	assert.equal(xhs.published, '.bottom-container .date');
+});
+
+test('小红书正文排在图片前面', () => {
+	// 一条笔记最多九张图，图排前面要翻很久才看得到文案
+	assert.deepEqual(xhs.root, ['#detail-desc', '.media-container']);
+});
