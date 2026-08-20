@@ -207,3 +207,11 @@ node tools/probe.mjs "<url>" --show   # 开真窗口，不用 headless
 - **受限页面剪不了**：`chrome://`、扩展商店、PDF 阅读器不允许注入脚本，会提示换页面。
 - **发验证码和登录做了 3 秒节流**。只在请求进行中禁用按钮挡不住连点：请求一返回按钮
   立刻又能按，几下就撞上 Simplenote 的 429。节流从上一次请求**结束**算起。
+
+## 许可
+
+[MIT](LICENSE)。
+
+图标是 Simplenote 官方应用图标，取自 [simplenote-electron](https://github.com/Automattic/simplenote-electron)，
+版权归 Automattic 所有，不在本仓库的 MIT 许可范围内。这个扩展是第三方客户端，和
+Automattic 没有关系。
