@@ -1,6 +1,7 @@
-// 给设置页拍一张 README 用的截图。UI 改了就重跑一次，别让 README 里的图烂掉：
+// 给设置页或 popup 拍一张 README 用的截图。UI 改了就重跑一次，别让 README 里的图烂掉：
 //
-//   node tools/screenshot.mjs [输出路径]
+//   node tools/screenshot.mjs [输出路径]            设置页
+//   node tools/screenshot.mjs --popup [输出路径]    popup
 //
 // 不加载真扩展：那样要先拿 extension id，而且会读到本机真实配置（含密钥）。
 // 改成起一个本地 http 服务（ES module 走 file:// 会被 CORS 挡），
@@ -15,7 +16,11 @@ import { fileURLToPath } from 'node:url';
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const PORT = 8731;
 const CDP_PORT = 9345;
-const OUT = process.argv[2] ?? join(REPO, 'docs/options.png');
+const POPUP = process.argv.includes('--popup');
+const PAGE = POPUP ? 'popup' : 'options';
+const OUT =
+	process.argv.slice(2).find((a) => !a.startsWith('--')) ??
+	join(REPO, POPUP ? 'docs/popup.png' : 'docs/options.png');
 
 // 全是假的：真密钥不能出现在截图里
 const DEMO = {
@@ -51,6 +56,8 @@ window.chrome = {
   }},
   permissions: { contains: async () => true, request: async () => true },
   runtime: { sendMessage: async () => ({ ok: true, message: '上传成功' }), openOptionsPage() {} },
+  // popup 要读当前标签页
+  tabs: { query: async () => [{ id: 1, title: '一篇文章的标题 - 某站', url: 'https://example.com/a' }] },
 };
 </script>`;
 
@@ -72,9 +79,9 @@ const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.png': 'image/pn
 const server = createServer((req, res) => {
 	const path = decodeURIComponent(req.url.split('?')[0]);
 	try {
-		if (path === '/' || path === '/options.html') {
-			const html = readFileSync(join(REPO, 'options.html'), 'utf8')
-				.replace('<script type="module" src="options.js">', `${STUB}\n  <script type="module" src="options.js">`);
+		if (path === '/' || path === `/${PAGE}.html`) {
+			const html = readFileSync(join(REPO, `${PAGE}.html`), 'utf8')
+				.replace(`<script type="module" src="${PAGE}.js">`, `${STUB}\n  <script type="module" src="${PAGE}.js">`);
 			res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
 			res.end(html);
 			return;
@@ -113,7 +120,7 @@ try {
 	}
 
 	const target = await (
-		await fetch(`http://127.0.0.1:${CDP_PORT}/json/new?${encodeURIComponent(`http://127.0.0.1:${PORT}/options.html`)}`, { method: 'PUT' })
+		await fetch(`http://127.0.0.1:${CDP_PORT}/json/new?${encodeURIComponent(`http://127.0.0.1:${PORT}/${PAGE}.html`)}`, { method: 'PUT' })
 	).json();
 	const ws = new WebSocket(target.webSocketDebuggerUrl);
 	await new Promise((r) => ws.addEventListener('open', r, { once: true }));
@@ -137,11 +144,22 @@ try {
 	await send('Page.enable');
 	await sleep(2500);
 
-	// 按内容实际高度截整页，不留大片空白
-	const metrics = await send('Page.getLayoutMetrics');
-	const size = metrics.result?.cssContentSize ?? metrics.result?.contentSize;
-	const height = Math.ceil(size.height);
-	const width = Math.ceil(size.width);
+	// 按内容实际高度截整页，不留大片空白。popup 得按 body 自己的宽度截，
+	// 否则拿到的是视口宽度，看着和真实弹窗完全不是一个东西
+	let width;
+	let height;
+	if (POPUP) {
+		const box = await send('Runtime.evaluate', {
+			expression: 'JSON.stringify([document.body.scrollWidth, document.body.scrollHeight])',
+			returnByValue: true,
+		});
+		[width, height] = JSON.parse(box.result.result.value);
+	} else {
+		const metrics = await send('Page.getLayoutMetrics');
+		const size = metrics.result?.cssContentSize ?? metrics.result?.contentSize;
+		height = Math.ceil(size.height);
+		width = Math.ceil(size.width);
+	}
 
 	const shot = await send('Page.captureScreenshot', {
 		format: 'png',

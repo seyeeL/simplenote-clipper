@@ -22,6 +22,15 @@
     white-space: nowrap;
   }
   label { display: block; margin-bottom: 4px; color: #6b7280; font-size: 12px; }
+  label.check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 10px 0 0;
+    color: #4b5563;
+    cursor: pointer;
+  }
+  label.check input { margin: 0; }
   input[type="text"] {
     width: 100%;
     box-sizing: border-box;
@@ -52,6 +61,7 @@
   @media (prefers-color-scheme: dark) {
     body { background: #1f2124; color: #e5e7eb; }
     .page-title { color: #9ca3af; }
+    label.check { color: #b6bcc6; }
     input[type="text"] { background: #2a2d31; border-color: #3f444a; color: #e5e7eb; }
   }
 </style>
@@ -67,6 +77,9 @@
   <div id="clip-form" class="hidden">
     <label for="tags">标签（空格或逗号分隔）</label>
     <input type="text" id="tags" autocomplete="off" spellcheck="false">
+    <label class="check" for="skip-images" title="正文里的图一张都不要，只留文字">
+      <input type="checkbox" id="skip-images">不保存图片
+    </label>
     <button id="clip">剪藏本页</button>
   </div>
 

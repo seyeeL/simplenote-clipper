@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildRefererRules, collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex } from '../lib/images.js';
+import { buildRefererRules, collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex, stripImages } from '../lib/images.js';
 
 test('收集正文里的图片地址，按出现顺序去重', () => {
 	const md = '![a](https://x/1.png)\n\n文字\n\n![b](https://x/2.jpg)\n\n![c](https://x/1.png)';
@@ -106,4 +106,46 @@ test('没配 Referer 的站点不生成规则', () => {
 	assert.deepEqual(buildRefererRules({ imageReferer: 'https://x.com/' }), []);
 	assert.deepEqual(buildRefererRules(null), []);
 	assert.deepEqual(buildRefererRules(undefined), []);
+});
+
+test('不保存图片：图删掉，文字留着', () => {
+	const md = '一段话\n\n![配图](https://a.com/1.jpg)\n\n下一段';
+	const { markdown, removed } = stripImages(md);
+	assert.equal(markdown, '一段话\n\n下一段');
+	assert.equal(removed, 1);
+});
+
+test('图外面套着链接也一起删干净', () => {
+	// 很多站点的插图可以点开大图，删完只剩 [](href) 就成了指向不明的空链接
+	const md = '前\n\n[![大图](https://a.com/1.jpg)](https://a.com/1.jpg)\n\n后';
+	const { markdown, removed } = stripImages(md);
+	assert.equal(markdown, '前\n\n后');
+	assert.equal(removed, 1);
+	assert.ok(!markdown.includes('['));
+});
+
+test('行内图删掉不动周围的字', () => {
+	const { markdown, removed } = stripImages('看这个 ![梗图](https://a.com/x.png) 挺逗');
+	assert.equal(markdown, '看这个  挺逗');
+	assert.equal(removed, 1);
+});
+
+test('连着好几张图只留一个空行', () => {
+	const md = '前\n\n![](https://a.com/1.jpg)\n\n![](https://a.com/2.jpg)\n\n![](https://a.com/3.jpg)\n\n后';
+	const { markdown, removed } = stripImages(md);
+	assert.equal(markdown, '前\n\n后');
+	assert.equal(removed, 3);
+});
+
+test('普通链接不受影响', () => {
+	const md = '见 [文档](https://a.com/doc) 和 ![图](https://a.com/1.jpg)';
+	const { markdown, removed } = stripImages(md);
+	assert.equal(markdown, '见 [文档](https://a.com/doc) 和');
+	assert.equal(removed, 1);
+});
+
+test('没有图就原样返回', () => {
+	assert.deepEqual(stripImages('只有文字'), { markdown: '只有文字', removed: 0 });
+	assert.deepEqual(stripImages(''), { markdown: '', removed: 0 });
+	assert.deepEqual(stripImages(null), { markdown: '', removed: 0 });
 });
