@@ -11,6 +11,10 @@ Chrome / Edge MV3 扩展：提取当前网页正文，转成 Markdown，直接�
 2. 打开「开发者模式」
 3. 点「加载已解压的扩展程序」，选这个目录
 
+设置页长这样（图里都是示例值）：
+
+![设置页](docs/options.png)
+
 ## 登录
 
 点扩展图标 → 「设置」，填 Simplenote 邮箱 → 发送验证码 → 填邮件里的验证码 → 登录。
@@ -53,6 +57,12 @@ created: 2026-08-20
 不然笔记里会连着出现两行标题。不一致的 heading 保留 —— 那是文章自己的小节标题。
 
 笔记默认打上 `markdown` 这个 systemTag，Simplenote 客户端里会按 Markdown 渲染。
+
+### 站点兼容
+
+大部分文章页走通用启发式就能抓，不用配置。微信公众号和微博写了专用规则（SPA 或者正文里
+一个 `<p>` 都没有，通用打分对付不了）。实测过哪些站点、各自怎么取、还有什么缺口，
+见 **[docs/sites.md](docs/sites.md)**，加新站点的步骤也在那里。
 
 ### 标签
 
@@ -139,7 +149,8 @@ popup 关掉就没了，这份是落盘的。
 | `lib/extract.js` | 网页正文与元信息提取。需要真 DOM，只在页面上下文里跑 |
 | `lib/html2md.js` | DOM → Markdown。只用五个 DOM 接口走树，纯逻辑，可 node 测 |
 | `lib/note.js` | 纯函数：拼笔记正文、组 Simperium payload、标签规范化 |
-| `lib/domains.js` | 域名 → 标签映射表。加常用站点改这里 |
+| `lib/domains.js` | 域名 → 标签映射表 |
+| `lib/site-rules.js` | 站点专用提取规则，见 [docs/sites.md](docs/sites.md) |
 | `lib/images.js` | 正文里图片链接的收集与替换、后缀判定、内容哈希 |
 | `lib/oss.js` | 阿里云 OSS 签名与上传 |
 | `lib/simperium.js` | 登录与写入的 HTTP 客户端，错误统一包成 `SimperiumError` |
@@ -148,9 +159,11 @@ popup 关掉就没了，这份是落盘的。
 | `background.js` | service worker：注入抓取 → 拼正文 → POST。放这里是因为 popup 一关 fetch 就断 |
 | `popup.*` / `options.*` | 剪藏面板 / 登录与默认值设置 |
 | `tools/probe.mjs` | 调试用：对真实页面跑一遍提取，见下 |
+| `tools/screenshot.mjs` | 重新生成 README 里的设置页截图 |
 
-`lib/extract.js` 和 `lib/html2md.js` 在 `manifest.json` 里声明为 `web_accessible_resources`，
-因为注入脚本要 `import()` 它们；`lib/simperium.js`、`storage.js` 不外露。
+`lib/extract.js`、`lib/html2md.js`、`lib/site-rules.js` 在 `manifest.json` 里声明为
+`web_accessible_resources`，因为注入脚本要 `import()` 它们；`lib/simperium.js`、
+`storage.js` 不外露。给注入侧拆新模块时记得一起加进去，漏了页面会直接 `ReferenceError`。
 
 ## 测试
 
@@ -171,6 +184,13 @@ node --test "tests/*.test.mjs"
 
 ```bash
 python icons/render.py
+```
+
+设置页截图改了 UI 之后重拍（起一个本地服务 + headless Chrome，喂的是假数据，
+不会读到本机真实配置）：
+
+```bash
+node tools/screenshot.mjs
 ```
 
 ## 调试某个站点抓不到正文
@@ -194,7 +214,9 @@ node tools/probe.mjs "<url>" --show   # 开真窗口，不用 headless
 
 - **正文提取是启发式的**。语义选择器猜不中就按「段落文字量 × (1 - 链接密度)」打分选容器，
   论坛、瀑布流、SPA 这类页面会漏。提取不到正文时笔记只留链接，不会写出空笔记。
-  新站点抓不到正文按上面的「调试某个站点抓不到正文」走。
+  新站点抓不到正文按上面的「调试某个站点抓不到正文」走，实测结论记进
+  [docs/sites.md](docs/sites.md)。
+- **微博的配图抓不到**，只取了正文。原因和补法见 [docs/sites.md](docs/sites.md)。
 - **噪声过滤按 class / id 命名猜**，会误伤。命名里带 `share`、`nav`、`footer` 这类词但
   文字量大且不是链接堆的容器会被保留 —— 公众号正文就挂在 `p.share_notice_inner` 上，
   一刀切会把正文删光。反过来，正文容器如果被命名成 `related` / `comments` 就一定会丢。
