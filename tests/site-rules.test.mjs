@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { SITE_RULES, ruleFor, upgradeSinaImage } from '../lib/site-rules.js';
 
 const weibo = SITE_RULES.find((r) => r.name === '微博');
+const xhs = SITE_RULES.find((r) => r.name === '小红书');
 
 test('按 hostname 命中规则', () => {
 	assert.equal(ruleFor('https://mp.weixin.qq.com/s/abc')?.name, '微信公众号');
@@ -109,4 +110,41 @@ test('带 hash 的类名只匹配稳定的那一段', () => {
 	// _wbtext_1h76l_19 里 1h76l 是构建 hash，微博一发版就变
 	const withHash = [weibo.author, weibo.published].join(' ');
 	assert.ok(!/_[a-z0-9]{5}_\d+/.test(withHash), `选择器里写死了构建 hash：${withHash}`);
+});
+
+test('按 hostname 命中小红书', () => {
+	assert.equal(ruleFor('https://www.xiaohongshu.com/explore/6a7dd7f7?xsec_token=x')?.name, '小红书');
+	assert.equal(ruleFor('https://xiaohongshu.com/explore/1')?.name, '小红书');
+});
+
+test('小红书时间去掉「编辑于」前缀和末尾的发布地点', () => {
+	assert.equal(xhs.normalizePublished('6天前 重庆'), '6天前');
+	assert.equal(xhs.normalizePublished('编辑于 昨天 14:07'), '昨天 14:07');
+	assert.equal(xhs.normalizePublished('昨天 04:09 北京'), '昨天 04:09');
+	// 没有地点的原样留着
+	assert.equal(xhs.normalizePublished('08-05'), '08-05');
+	assert.equal(xhs.normalizePublished('7小时前'), '7小时前');
+	// 「6天前」本身以中文结尾，前面没空格，不该被当成地点切掉
+	assert.equal(xhs.normalizePublished('6天前'), '6天前');
+});
+
+test('小红书规则同时管住图文笔记和视频笔记的噪声', () => {
+	assert.ok(xhs.drop.includes('.swiper-slide-duplicate'), 'swiper 复制品会让同一张图出现两次');
+	assert.ok(xhs.drop.includes('.player-container'), '视频笔记的播放器 UI 会进正文');
+	assert.ok(xhs.drop.includes('img.note-content-emoji'), '正文表情是 <img>，开图床会一张张传');
+	assert.deepEqual(xhs.unwrap, ['a.tag'], '话题标签只留文字，不要站内搜索的相对链接');
+	assert.deepEqual(xhs.keepLineBreaks, ['#detail-desc'], '正文分段靠文本里的换行');
+});
+
+test('小红书没有独立标题的笔记要能退回正文开头', () => {
+	assert.equal(xhs.title, '#detail-title');
+	assert.equal(xhs.titleFromBody, true);
+});
+
+test('stripText 配的是正则，不是字符串', () => {
+	for (const rule of SITE_RULES) {
+		for (const pattern of rule.stripText ?? []) {
+			assert.ok(pattern instanceof RegExp, `${rule.name} 的 stripText 要写正则`);
+		}
+	}
 });

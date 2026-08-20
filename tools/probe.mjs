@@ -5,8 +5,13 @@
 //   node tools/probe.mjs <url> --dump   页面里文字量最大的容器，定位「正文在哪」
 //   node tools/probe.mjs <url> --wx     用微信 UA（公众号链接需要）
 //   node tools/probe.mjs <url> --show   开真窗口，不用 headless
+//   node tools/probe.mjs <url> --attach[=端口]
+//                                       不开新浏览器，连已经开着调试端口的那个，
+//                                       在已打开的 tab 里跑（默认 9222）
 //
-// 用独立 user-data-dir，不碰你正在用的 Chrome 和登录态。
+// 默认用独立 user-data-dir，不碰你正在用的 Chrome 和登录态。要登录才给内容的站点
+// （小红书干净 profile 只会拿到风控拦截页）用 --attach：先在那个浏览器里登录并打开
+// 目标页，这里只是连上去执行，同样不读 cookie。
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,7 +25,13 @@ const WECHAT_UA =
 	'(KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.40(0x18002832) NetType/WIFI Language/zh_CN';
 
 const url = process.argv[2];
-const flag = (name) => process.argv.includes(`--${name}`);
+const flag = (name) => process.argv.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+const flagValue = (name, fallback) => {
+	const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
+	return hit ? hit.slice(name.length + 3) : fallback;
+};
+const ATTACH = flag('attach');
+const ATTACH_PORT = flagValue('attach', '9222');
 
 if (!url) {
 	console.error('用法: node tools/probe.mjs <url> [--dump] [--wx] [--show]');
@@ -109,7 +120,8 @@ const DUMP_EXPR = `(() => {
   }, null, 2); })()`;
 
 const profile = mkdtempSync(join(tmpdir(), 'sn-probe-'));
-const chrome = spawn(findChrome(), [
+// attach 模式下不开浏览器，也就没有进程要收
+const chrome = ATTACH ? null : spawn(findChrome(), [
 	...(flag('show') ? ['--window-position=-3000,0'] : ['--headless=new', '--disable-gpu']),
 	`--remote-debugging-port=${PORT}`,
 	`--user-data-dir=${profile}`,
@@ -122,12 +134,32 @@ const chrome = spawn(findChrome(), [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 已经开着的浏览器里找那个 tab。传的 URL 常带 xsec_token 之类的参数，用路径匹配更稳。 */
+async function attachTarget() {
+	const list = await (await fetch(`http://127.0.0.1:${ATTACH_PORT}/json/list`)).json();
+	const pages = list.filter((t) => t.type === 'page');
+	let key = url;
+	try {
+		key = new URL(url).pathname;
+	} catch {
+		// 传的不是完整 URL，当子串用
+	}
+	const found = pages.find((t) => t.url.includes(url)) ?? pages.find((t) => t.url.includes(key));
+	if (found) return found;
+	const opened = pages.map((t) => t.url).join('\n  ');
+	throw new Error(
+		`那个浏览器里没有匹配 ${key} 的标签页，先在它里面打开目标页。` +
+			`\n当前开着：\n  ${opened}`,
+	);
+}
+
 try {
+	const port = ATTACH ? ATTACH_PORT : PORT;
 	let ready = false;
 	let lastError = '';
-	for (let i = 0; i < 80 && !ready; i += 1) {
+	for (let i = 0; i < (ATTACH ? 3 : 80) && !ready; i += 1) {
 		try {
-			ready = (await fetch(`http://127.0.0.1:${PORT}/json/version`)).ok;
+			ready = (await fetch(`http://127.0.0.1:${port}/json/version`)).ok;
 		} catch (err) {
 			lastError = err?.message || String(err);
 			await sleep(300);
@@ -135,20 +167,28 @@ try {
 	}
 	// 端口一直连不上的原因五花八门（Chrome 起不来、端口被占、代理拦本地回环），
 	// 把最后一次的报错带出来，别让调用方对着一句「没起来」猜
-	if (!ready) throw new Error(`Chrome 没起来（127.0.0.1:${PORT} 连不上：${lastError || '未知原因'}）`);
+	if (!ready && ATTACH) {
+		throw new Error(`连不上 127.0.0.1:${port}（${lastError || '未知原因'}）。那个浏览器要带 --remote-debugging-port 启动。`);
+	}
+	if (!ready) throw new Error(`Chrome 没起来（127.0.0.1:${port} 连不上：${lastError || '未知原因'}）`);
 
-	const target = await (
-		await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })
-	).json();
+	const target = ATTACH
+		? await attachTarget()
+		: await (
+			await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })
+		).json();
 	const ws = new WebSocket(target.webSocketDebuggerUrl);
 	await new Promise((r) => ws.addEventListener('open', r, { once: true }));
 	const client = cdp(ws);
 
 	await client.send('Page.enable');
 	await client.send('Runtime.enable');
-	for (let i = 0; i < 40 && !client.loaded(); i += 1) await sleep(300);
-	// 等首屏 JS 把正文塞进 DOM
-	await sleep(6000);
+	// attach 的页面早就加载完了，Page.loadEventFired 不会再来一次
+	if (!ATTACH) {
+		for (let i = 0; i < 40 && !client.loaded(); i += 1) await sleep(300);
+		// 等首屏 JS 把正文塞进 DOM
+		await sleep(6000);
+	}
 
 	const res = await client.send('Runtime.evaluate', {
 		expression: flag('dump') ? DUMP_EXPR : EXTRACT_EXPR,
@@ -157,5 +197,5 @@ try {
 	});
 	console.log(res.result?.result?.value ?? JSON.stringify(res.result, null, 2));
 } finally {
-	chrome.kill();
+	chrome?.kill();
 }

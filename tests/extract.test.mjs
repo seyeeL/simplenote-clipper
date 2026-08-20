@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { dropNested, shouldDropByClass, stripSiteSuffix } from '../lib/extract.js';
+import {
+	dropNested,
+	keepLineBreaks,
+	shouldDropByClass,
+	stripSiteSuffix,
+	stripText,
+	textNodesIn,
+} from '../lib/extract.js';
+import { el, fakeDoc, text } from './fake-dom.mjs';
 
 test('明确的噪声容器，文字再多也删', () => {
 	assert.equal(
@@ -125,4 +133,73 @@ test('没有 contains 的节点不炸', () => {
 	const bare = { name: 'bare' };
 	assert.deepEqual(dropNested([bare]), [bare]);
 	assert.deepEqual(dropNested([]), []);
+});
+
+test('textNodesIn 按顺序收齐整棵树的文本节点', () => {
+	const tree = el('div', {}, ['一', el('span', {}, ['二', el('b', {}, ['三'])]), '四']);
+	assert.deepEqual(textNodesIn(tree).map((n) => n.textContent), ['一', '二', '三', '四']);
+	assert.deepEqual(textNodesIn(el('div')), []);
+	assert.deepEqual(textNodesIn(null), []);
+});
+
+test('stripText 抹掉占位符，别的字不动', () => {
+	// 小红书话题标签里夹着 [eoi]，页面上是个小图标，取 textContent 就露出来了
+	const tree = el('div', {}, [el('span', {}, ['#披荆斩棘的哥哥']), el('span', {}, ['[eoi]']), el('span', {}, ['#'])]);
+	stripText(tree, [/\[eoi\]/g]);
+	assert.equal(tree.textContent, '#披荆斩棘的哥哥#');
+});
+
+test('stripText 一个文本节点里出现多次也清干净', () => {
+	const tree = el('div', {}, ['a[eoi]b[eoi]c']);
+	stripText(tree, [/\[eoi\]/g]);
+	assert.equal(tree.textContent, 'abc');
+});
+
+test('没配 stripText 就一个字都不碰', () => {
+	const tree = el('div', {}, ['[eoi] 留着']);
+	stripText(tree, []);
+	stripText(tree);
+	assert.equal(tree.textContent, '[eoi] 留着');
+});
+
+/** 只命中容器自身的最小 stub：keepLineBreaks 要 matches / querySelectorAll。 */
+function lineBreakBox(...children) {
+	const doc = fakeDoc();
+	const node = doc.adopt(el('div', { id: 'detail-desc' }, children));
+	node.matches = (selector) => selector === '#detail-desc';
+	node.querySelectorAll = () => [];
+	return node;
+}
+
+test('keepLineBreaks 把文本里的换行换成 <br>', () => {
+	// 小红书正文靠 CSS white-space 把 \n 显示成换行，HTML 里既没有 <p> 也没有 <br>，
+	// 照通用规则当空白压掉的话整篇文案会挤成一行
+	const box = lineBreakBox('第一段\n第二段');
+	keepLineBreaks(box, ['#detail-desc']);
+	assert.deepEqual(
+		box.childNodes.map((n) => (n.nodeType === 1 ? n.nodeName : n.textContent)),
+		['第一段', 'BR', '第二段'],
+	);
+});
+
+test('连着两个换行留两个 <br>，收口时会变成分段', () => {
+	const box = lineBreakBox('上\n\n下');
+	keepLineBreaks(box, ['#detail-desc']);
+	assert.deepEqual(
+		box.childNodes.map((n) => (n.nodeType === 1 ? n.nodeName : n.textContent)),
+		['上', 'BR', 'BR', '下'],
+	);
+});
+
+test('没有换行的文本节点原样留着', () => {
+	const box = lineBreakBox('一整行');
+	keepLineBreaks(box, ['#detail-desc']);
+	assert.deepEqual(box.childNodes.map((n) => n.textContent), ['一整行']);
+});
+
+test('没点名的选择器不动', () => {
+	const box = lineBreakBox('第一段\n第二段');
+	keepLineBreaks(box, ['#other']);
+	keepLineBreaks(box, []);
+	assert.deepEqual(box.childNodes.map((n) => n.textContent), ['第一段\n第二段']);
 });
