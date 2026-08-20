@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildNoteContent, buildNoteData, normalizeTags, toDateString } from '../lib/note.js';
+import {
+	authorTag,
+	buildNoteContent,
+	buildNoteData,
+	buildTags,
+	normalizeTags,
+	toDateString,
+} from '../lib/note.js';
 
 test('标签按空格 / 半角逗号 / 全角逗号切分并去重（忽略大小写）', () => {
 	assert.deepEqual(normalizeTags('clip 技术，读书,Clip'), ['clip', '技术', '读书']);
@@ -14,15 +21,52 @@ test('标签超长截断到 64 字符', () => {
 	assert.equal(normalizeTags('x'.repeat(100))[0].length, 64);
 });
 
+test('作者名整体当一个标签，内部空格换连字符', () => {
+	assert.equal(authorTag('张三'), '张三');
+	assert.equal(authorTag('  John  Smith '), 'John-Smith');
+	assert.equal(authorTag(''), '');
+	assert.equal(authorTag(null), '');
+});
+
+test('作者字段抓到整段简介时不打标签（>40 字符）', () => {
+	const bio = '这是一段被误当成作者名抓下来的自我介绍文字内容还在继续继续继续继续继续继续继续继续继续继续';
+	assert.ok(bio.length > 40);
+	assert.equal(authorTag(bio), '');
+	// 边界：正好 40 字符仍然打标签
+	assert.equal(authorTag('x'.repeat(40)), 'x'.repeat(40));
+	assert.equal(authorTag('x'.repeat(41)), '');
+});
+
+test('buildTags = 手填标签 + 作者 + 站点，并去重', () => {
+	assert.deepEqual(
+		buildTags({ tags: 'clip 技术', author: '张三', url: 'https://mp.weixin.qq.com/s/abc' }),
+		['clip', '技术', '张三', '公众号'],
+	);
+	// 手填标签里已经有站点名时不重复加
+	assert.deepEqual(
+		buildTags({ tags: '公众号', url: 'https://mp.weixin.qq.com/s/abc' }),
+		['公众号'],
+	);
+});
+
+test('没有作者或 URL 时 buildTags 不产出空标签', () => {
+	assert.deepEqual(buildTags({ tags: 'clip' }), ['clip']);
+	assert.deepEqual(buildTags({ tags: 'clip', url: '不是个 URL' }), ['clip']);
+});
+
 test('toDateString 吃 ISO / Date / 时间戳，解析不出来就原样返回', () => {
 	assert.equal(toDateString('2026-08-20T12:00:00Z'), toDateString(new Date('2026-08-20T12:00:00Z')));
 	assert.equal(toDateString(new Date(2026, 7, 20)), '2026-08-20');
 	assert.equal(toDateString('民国八十年'), '民国八十年');
+	// 公众号 #publish_time 是中文格式，Date 直接解析会 NaN
+	assert.equal(toDateString('2026年8月19日 11:56'), '2026-08-19');
+	assert.equal(toDateString('2026/8/9'), '2026-08-09');
+	assert.equal(toDateString('2024-12-20'), '2024-12-20');
 	assert.equal(toDateString(''), '');
 	assert.equal(toDateString(null), '');
 });
 
-test('第一行只放标题 —— Simplenote 按第一行显示笔记名', () => {
+test('第一行只放标题 —— Simplenote 按第一行显示笔记名，frontmatter 不能顶格', () => {
 	const content = buildNoteContent({
 		title: '标题\n带换行',
 		url: 'https://example.com/a',
@@ -30,21 +74,55 @@ test('第一行只放标题 —— Simplenote 按第一行显示笔记名', () =
 		clippedAt: new Date(2026, 7, 20),
 	});
 	assert.equal(content.split('\n')[0], '标题 带换行');
+	assert.equal(content.split('\n')[1], '');
+	assert.equal(content.split('\n')[2], '---');
 });
 
-test('元信息行按站点 · 作者 · 发布 · 剪藏 排列，缺项自动省略', () => {
+test('frontmatter 是 url / published / created 三行', () => {
 	const content = buildNoteContent({
 		title: 'T',
-		url: 'https://example.com/a',
-		siteName: '某站',
-		publishedAt: '2026-01-02T00:00:00Z',
+		url: 'https://weibo.com/1088413295/5113631702256640',
+		publishedAt: '2024-12-20',
 		markdown: '正文',
 		clippedAt: new Date(2026, 7, 20),
 	});
-	const lines = content.split('\n');
-	assert.equal(lines[2], '来源：https://example.com/a');
-	assert.equal(lines[3], `某站 · 发布 ${toDateString('2026-01-02T00:00:00Z')} · 剪藏 2026-08-20`);
-	assert.ok(!lines[3].includes('作者'));
+	assert.equal(
+		content,
+		[
+			'T',
+			'',
+			'---',
+			'url: https://weibo.com/1088413295/5113631702256640',
+			`published: ${toDateString('2024-12-20')}`,
+			'created: 2026-08-20',
+			'---',
+			'',
+			'正文',
+		].join('\n'),
+	);
+});
+
+test('发布日期抓不到时省略 published 行，不写空值', () => {
+	const content = buildNoteContent({
+		title: 'T',
+		url: 'https://a.b',
+		markdown: '正文',
+		clippedAt: new Date(2026, 7, 20),
+	});
+	assert.ok(!content.includes('published:'));
+	assert.ok(content.includes('created: 2026-08-20'));
+});
+
+test('作者和站点不进 frontmatter —— 它们是标签', () => {
+	const content = buildNoteContent({
+		title: 'T',
+		url: 'https://a.b',
+		author: '张三',
+		siteName: '某站',
+		markdown: '正文',
+	});
+	assert.ok(!content.includes('张三'));
+	assert.ok(!content.includes('某站'));
 });
 
 test('标题为空时退到站点名，再退到 URL', () => {
@@ -54,7 +132,7 @@ test('标题为空时退到站点名，再退到 URL', () => {
 	assert.equal(buildNoteContent({ clippedAt }).split('\n')[0], '未命名剪藏');
 });
 
-test('正文抽空时留一句说明，不产出只有分隔线的空笔记', () => {
+test('正文抽空时留一句说明，不产出只有 frontmatter 的空笔记', () => {
 	const content = buildNoteContent({ title: 'T', url: 'https://a.b', markdown: '   ' });
 	assert.ok(content.endsWith('（未提取到正文，只存了链接）'));
 });

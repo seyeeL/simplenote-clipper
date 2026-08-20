@@ -2,7 +2,7 @@
 // 放在这里而不是 popup 里，是因为 popup 一关闭它的 fetch 就被掐断，
 // 而剪藏经常要等几秒。
 
-import { buildNoteContent, buildNoteData } from './lib/note.js';
+import { buildNoteContent, buildNoteData, buildTags } from './lib/note.js';
 import { createNote, SimperiumError } from './lib/simperium.js';
 import { loadAuth, loadSettings } from './storage.js';
 
@@ -77,7 +77,12 @@ export async function clip({ tabId, tags } = {}) {
 		const content = buildNoteContent({ ...article, clippedAt: new Date() });
 		const noteData = buildNoteData({
 			content,
-			tags: tags ?? settings.defaultTags,
+			// 作者和来源站点不写进 frontmatter，走标签
+			tags: buildTags({
+				tags: tags ?? settings.defaultTags,
+				author: article.author,
+				url: article.url,
+			}),
 			pinned: settings.pinned,
 		});
 		const result = await createNote({ token: auth.token, noteData });

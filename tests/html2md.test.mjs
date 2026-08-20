@@ -92,6 +92,29 @@ test('行数不齐的表格补空单元格', () => {
 	assert.equal(htmlToMarkdown(root), '| A | B |\n| --- | --- |\n| 只有一格 |   |');
 });
 
+test('回归：没有 <p> 的 div/section 排版要分段，不能拼成一整行', () => {
+	// 公众号、知乎大量用 section 排版，全文一个 <p> 都没有
+	const root = el('div', {}, [
+		el('section', {}, ['第一段']),
+		el('section', {}, ['第二段']),
+		el('div', {}, [el('span', {}, ['第三段'])]),
+	]);
+	assert.equal(htmlToMarkdown(root), '第一段\n\n第二段\n\n第三段');
+});
+
+test('还有块级子元素的 div 只当容器透传，不额外制造空行', () => {
+	const root = el('div', {}, [el('div', {}, [el('h2', {}, ['标题']), el('p', {}, ['正文'])])]);
+	assert.equal(htmlToMarkdown(root), '## 标题\n\n正文');
+});
+
+test('div 里混着行内元素时整块算一段', () => {
+	const root = el('div', {}, [
+		el('div', {}, ['前', el('strong', {}, ['粗']), el('a', { href: 'https://a.b' }, ['链接'])]),
+		el('div', {}, ['下一段']),
+	]);
+	assert.equal(htmlToMarkdown(root), '前**粗**[链接](https://a.b)\n\n下一段');
+});
+
 test('script / style / iframe 整棵丢掉', () => {
 	const root = el('div', {}, [
 		el('script', {}, ['var evil = 1']),
@@ -114,4 +137,14 @@ test('normalizeMarkdown 保留硬换行的两个尾空格', () => {
 test('空输入不炸', () => {
 	assert.equal(htmlToMarkdown(null), '');
 	assert.equal(htmlToMarkdown(el('div')), '');
+});
+
+test('回归：<br><br> 造出的「只有空格的行」要当空行，收成段落间隔', () => {
+	const root = el('div', {}, ['第一段', el('br'), el('br'), '第二段']);
+	assert.equal(htmlToMarkdown(root), '第一段\n\n第二段');
+});
+
+test('单个 <br> 仍然是 markdown 硬换行', () => {
+	const root = el('div', {}, ['上行', el('br'), '下行']);
+	assert.equal(htmlToMarkdown(root), '上行  \n下行');
 });
