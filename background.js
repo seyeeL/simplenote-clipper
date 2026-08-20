@@ -2,7 +2,14 @@
 // 放在这里而不是 popup 里，是因为 popup 一关闭它的 fetch 就被掐断，
 // 而剪藏经常要等几秒。
 
-import { buildRefererRules, collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex } from './lib/images.js';
+import {
+	buildRefererRules,
+	collectImageUrls,
+	extensionFor,
+	rewriteImageUrls,
+	sha256Hex,
+	stripImages,
+} from './lib/images.js';
 import { buildNoteContent, buildNoteData, buildTags } from './lib/note.js';
 import { buildObjectKey, isOssConfigured, probeUpload, putObject } from './lib/oss.js';
 import { ruleFor } from './lib/site-rules.js';
@@ -218,7 +225,7 @@ async function mirrorImages(markdown, oss, pageUrl) {
 	};
 }
 
-export async function clip({ tabId, tags } = {}) {
+export async function clip({ tabId, tags, skipImages = false } = {}) {
 	try {
 		const auth = await loadAuth();
 		if (!auth) {
@@ -229,8 +236,13 @@ export async function clip({ tabId, tags } = {}) {
 		const settings = await loadSettings();
 		const article = await collectArticle(tabId);
 
-		let images = { markdown: article.markdown, uploaded: 0, failed: 0, errors: [] };
-		if (isOssConfigured(settings.oss)) {
+		// 勾了「不保存图片」就在这里把图删干净，后面图床那一整段自然不用跑
+		const stripped = skipImages
+			? stripImages(article.markdown)
+			: { markdown: article.markdown, removed: 0 };
+
+		let images = { markdown: stripped.markdown, uploaded: 0, failed: 0, errors: [] };
+		if (!skipImages && isOssConfigured(settings.oss)) {
 			images = await mirrorImages(article.markdown, settings.oss, article.url);
 			// popup 一关就没了，落盘一份让设置页能回看
 			await saveImageReport({
@@ -270,6 +282,9 @@ export async function clip({ tabId, tags } = {}) {
 				uploaded: images.uploaded,
 				failed: images.failed,
 				reason: images.errors?.[0]?.reason ?? '',
+				// 跳过时不写图床报告：这次压根没走图床，覆盖掉上次的结果只会让人以为
+				// 上次也没图
+				stripped: stripped.removed,
 			},
 		};
 	} catch (err) {

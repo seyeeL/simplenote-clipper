@@ -25,7 +25,10 @@ Chrome / Edge MV3 扩展：提取当前网页正文，转成 Markdown，直接�
 ## 用法
 
 - 点扩展图标 → 改标签（可选）→「剪藏本页」
-- 或在页面上右键 →「剪藏到 Simplenote」，用设置里的默认标签
+- 不想要正文里的图就勾上「不保存图片」，见[下面这节](#为什么有不保存图片)
+- 或在页面上右键 →「剪藏到 Simplenote」，用设置里的默认标签（走默认，图照留）
+
+![popup](docs/popup.png)
 
 写进 Simplenote 的笔记长这样：
 
@@ -57,6 +60,28 @@ created: 2026-08-20
 不然笔记里会连着出现两行标题。不一致的 heading 保留 —— 那是文章自己的小节标题。
 
 笔记默认打上 `markdown` 这个 systemTag，Simplenote 客户端里会按 Markdown 渲染。
+
+### 为什么有「不保存图片」
+
+不少文章的插图是梗图、表情包、和内容无关的配图。这类图对以后重读这篇文章没有价值，
+却会把笔记撑得很长，在 Simplenote 的笔记列表和正文里翻起来都碍事。以前只能剪完之后
+进笔记一张张删，删的还是自己刚存进去的东西。
+
+这个复选框把这件事挪到剪藏之前：勾上再点「剪藏本页」，正文里的图一张都不留，只留文字。
+状态栏会告诉你去掉了几张。
+
+三个设计选择，都是有意的：
+
+- **默认不勾，而且不记住上次的选择。** 跳过图片是「这一篇不要图」的临时判断，不是长期
+  偏好。记住上次的勾选，会让人在后面几篇里不知不觉丢掉真正想要的配图。想长期不要图，
+  那是设置页的事，不是 popup 的事。
+- **是删掉，不是留个链接。** 保留 `![](...)` 的占位跟没删一样碍事，Simplenote 的预览里
+  还会留下一个个坏掉的图框。
+- **勾上时图床整段不跑。** 不抓图、不上传、也不写图床报告。这次压根没走图床，用一份
+  「0 张成功 0 张失败」去覆盖上次的结果，只会让人以为上次也没图。
+
+图外面套着链接的情况（`[![大图](img)](href)`，很多站点的插图都能点开看原图）会连着链接
+一起删干净，不会剩下 `[](href)` 这种指向不明的空链接。
 
 ### 站点兼容
 
@@ -166,7 +191,7 @@ popup 关掉就没了，这份是落盘的。
 | `background.js` | service worker：注入抓取 → 拼正文 → POST。放这里是因为 popup 一关 fetch 就断 |
 | `popup.*` / `options.*` | 剪藏面板 / 登录与默认值设置 |
 | `tools/probe.mjs` | 调试用：对真实页面跑一遍提取，见下 |
-| `tools/screenshot.mjs` | 重新生成 README 里的设置页截图 |
+| `tools/screenshot.mjs` | 重新生成 README 里的设置页 / popup 截图 |
 
 `lib/extract.js`、`lib/html2md.js`、`lib/site-rules.js` 在 `manifest.json` 里声明为
 `web_accessible_resources`，因为注入脚本要 `import()` 它们；`lib/simperium.js`、
@@ -193,12 +218,15 @@ node --test "tests/*.test.mjs"
 python icons/render.py
 ```
 
-设置页截图改了 UI 之后重拍（起一个本地服务 + headless Chrome，喂的是假数据，
+截图改了 UI 之后重拍（起一个本地服务 + headless Chrome，喂的是假数据，
 不会读到本机真实配置）：
 
 ```bash
-node tools/screenshot.mjs
+node tools/screenshot.mjs           # 设置页 → docs/options.png
+node tools/screenshot.mjs --popup   # popup → docs/popup.png
 ```
+
+这两个工具都要 Node 22+（全局 `fetch` 和 `WebSocket`）。
 
 ## 调试某个站点抓不到正文
 

@@ -37,12 +37,15 @@ async function init() {
 
 		const result = await chrome.runtime.sendMessage({
 			type: 'clip',
-			payload: { tabId: tab.id, tags: $('tags').value },
+			// 每次打开都是不勾的状态：跳过图片是「这一篇不要图」的临时决定，
+			// 记住上次的选择反而会让人不知不觉丢掉后面几篇的配图
+			payload: { tabId: tab.id, tags: $('tags').value, skipImages: $('skip-images').checked },
 		});
 
 		$('clip').disabled = false;
 		if (result?.ok) {
 			const parts = [`已存入 Simplenote（${result.chars} 字符）`];
+			if (result.images?.stripped) parts.push(`去掉 ${result.images.stripped} 张图`);
 			if (result.images?.uploaded) parts.push(`图片转存 ${result.images.uploaded} 张`);
 			if (result.images?.failed) {
 				// 只说「N 张失败」等于什么都没说，把第一条原因带出来
