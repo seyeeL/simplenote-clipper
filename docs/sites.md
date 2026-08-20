@@ -63,6 +63,11 @@
 一起进正文。`wbtext` 留在 `root` 数组里兜底：外层哪天改名了，至少正文还在——两个选择器
 在正常页面上是嵌套关系，只会保留最外层那个，正文不会重复。
 
+**图片要 Referer 才给。** sinaimg 认「浏览器 UA + 没有 Referer」这个组合就 403，跟图片
+尺寸无关（`orj360` 一样被拒）。service worker 抓图正好是这个组合，所以微博的图在配上
+`imageReferer` 之前根本转存不进图床。规则里配了 `imageReferer: 'https://weibo.com/'` 和
+`imageHosts: ['sinaimg.cn']`，抓图期间临时装一条 declarativeNetRequest 会话规则补上 Referer。
+
 **九宫格给的是缩略图。** 页面上的 `src` 是 `orj360`（本文那两张各 14 KB），截图缩到 360 宽
 根本看不清字。规则里把地址的尺寸段换成 `large` 拿原图（同一张 477 KB）。只认
 `orj360` / `mw690` / `bmiddle` 这类已知尺寸段，头像的 `crop.0.0.1080.1080.180` 不在其中，
@@ -127,6 +132,8 @@ Medium、Reddit、HackerNews 等）。它们只影响**标签**叫什么，不�
      normalizePublished: (t) => t,  // 时间格式怪的时候用
      drop: ['.ad-slot'],            // 规则级的额外删除项
      rewriteImageSrc: (src) => src, // 改图片地址（缩略图换原图之类）
+     imageReferer: 'https://example.com/',  // 图片站点要防盗链 Referer 时用
+     imageHosts: ['img.example.com'],       // 上面那个 Referer 补给哪些域名
    }
    ```
 

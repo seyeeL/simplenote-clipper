@@ -2,9 +2,10 @@
 // 放在这里而不是 popup 里，是因为 popup 一关闭它的 fetch 就被掐断，
 // 而剪藏经常要等几秒。
 
-import { collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex } from './lib/images.js';
+import { buildRefererRules, collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex } from './lib/images.js';
 import { buildNoteContent, buildNoteData, buildTags } from './lib/note.js';
 import { buildObjectKey, isOssConfigured, probeUpload, putObject } from './lib/oss.js';
+import { ruleFor } from './lib/site-rules.js';
 import { createNote, SimperiumError } from './lib/simperium.js';
 import { loadAuth, loadSettings, saveImageReport } from './storage.js';
 
@@ -19,6 +20,8 @@ const UPLOAD_CONCURRENCY = 4;
 const IMAGE_ORIGINS = { origins: ['<all_urls>'] };
 // 失败详情留几条给设置页看。同一篇文章的失败原因通常一样，不用全存
 const MAX_KEPT_ERRORS = 5;
+// 补 Referer 用的会话规则从这个 id 开始。会话规则不落盘，浏览器一关就没了
+const REFERER_RULE_ID = 1;
 
 chrome.runtime.onInstalled.addListener(() => {
 	chrome.contextMenus.create({
@@ -131,6 +134,10 @@ async function mirrorOne(url, oss) {
 		// "Failed to fetch"，得自己补上下文
 		throw new Error(`抓图失败：${err?.message ?? err}（可能是缺少跨域读取权限）`);
 	}
+	if (res.status === 403) {
+		// 防盗链站点最常见的回法。站点规则里配 imageReferer 就能过
+		throw new Error('抓图失败：HTTP 403（图片站点防盗链，拒绝这次转存）');
+	}
 	if (!res.ok) throw new Error(`抓图失败：HTTP ${res.status}`);
 
 	const buffer = await res.arrayBuffer();
@@ -150,10 +157,27 @@ async function mirrorOne(url, oss) {
 }
 
 /**
+ * 抓图期间临时给指定站点补上 Referer，抓完立刻撤掉。
+ * 规则是会话级的，不落盘；用固定 id 覆盖式写入，上次剪藏崩在中途留下的残规则
+ * 会被这次的 addRules 顶掉。
+ */
+async function withImageReferer(rule, fn) {
+	const rules = buildRefererRules(rule, REFERER_RULE_ID);
+	if (!rules.length) return fn();
+	const removeRuleIds = rules.map((r) => r.id);
+	await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds, addRules: rules });
+	try {
+		return await fn();
+	} finally {
+		await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds });
+	}
+}
+
+/**
  * 把正文里的图片转存到图床。单张失败就保留原链接，不让整次剪藏失败 ——
  * 少一张图的笔记，比没有笔记有用。
  */
-async function mirrorImages(markdown, oss) {
+async function mirrorImages(markdown, oss, pageUrl) {
 	const urls = collectImageUrls(markdown);
 	if (!urls.length) return { markdown, uploaded: 0, failed: 0, errors: [] };
 
@@ -170,19 +194,21 @@ async function mirrorImages(markdown, oss) {
 
 	const mapping = {};
 	const errors = [];
-	for (let i = 0; i < urls.length; i += UPLOAD_CONCURRENCY) {
-		await Promise.all(
-			urls.slice(i, i + UPLOAD_CONCURRENCY).map(async (url) => {
-				try {
-					mapping[url] = await mirrorOne(url, oss);
-				} catch (err) {
-					const reason = err?.message ?? String(err);
-					errors.push({ url, reason });
-					console.warn('[图床] 转存失败，保留原链接:', url, reason);
-				}
-			}),
-		);
-	}
+	await withImageReferer(ruleFor(pageUrl), async () => {
+		for (let i = 0; i < urls.length; i += UPLOAD_CONCURRENCY) {
+			await Promise.all(
+				urls.slice(i, i + UPLOAD_CONCURRENCY).map(async (url) => {
+					try {
+						mapping[url] = await mirrorOne(url, oss);
+					} catch (err) {
+						const reason = err?.message ?? String(err);
+						errors.push({ url, reason });
+						console.warn('[图床] 转存失败，保留原链接:', url, reason);
+					}
+				}),
+			);
+		}
+	});
 
 	return {
 		markdown: rewriteImageUrls(markdown, mapping),
@@ -205,7 +231,7 @@ export async function clip({ tabId, tags } = {}) {
 
 		let images = { markdown: article.markdown, uploaded: 0, failed: 0, errors: [] };
 		if (isOssConfigured(settings.oss)) {
-			images = await mirrorImages(article.markdown, settings.oss);
+			images = await mirrorImages(article.markdown, settings.oss, article.url);
 			// popup 一关就没了，落盘一份让设置页能回看
 			await saveImageReport({
 				url: article.url,
