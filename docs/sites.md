@@ -80,11 +80,13 @@
 
 | 项 | 取法 |
 |----|------|
-| 正文 + 配图 | `.media-container` + `#detail-desc` |
+| 正文 + 配图 | `#detail-desc` + `.media-container`，文字在前图片在后 |
 | 标题 | `#detail-title`，没有就取正文开头 40 字 |
 | 作者 | `#noteContainer .author-wrapper .name` |
-| 时间 | `.bottom-container .date`，去掉「编辑于」前缀和末尾的发布地点 |
+| 时间 | `__INITIAL_STATE__` 里的时间戳，兜底才用 `.bottom-container .date` |
 | 标签 | `小红书` |
+
+正文排在图片前面：一条笔记最多九张图，图放前面要翻很久才看得到文案。
 
 实测 2026-08-20 五条笔记（图文 / 视频 / 有标题 / 无标题 / 带表情各一条），正文、作者、
 时间、九宫格配图都对。
@@ -115,6 +117,18 @@ profile，抓小红书只会拿到那张拦截页，调试得连已登录的浏�
 **话题标签里夹着 `[eoi]`。** 页面上渲染成一个小图标，取 `textContent` 就露出来了，
 `#披荆斩棘的哥哥[eoi]#`。它和正文 `<span>` 长得一模一样，选择器区分不了，只能按文本抹掉
 （`stripText: [/\[eoi\]/g]`）。
+
+**页面上只有相对时间。** `.date` 显示的是「6天前」「7小时前」，存进笔记一年后再看毫无意义。
+两条弯路都走不通：`.date` 元素没有带绝对时间的 `title` 属性；页面里的 JSON-LD 虽然有标准的
+`datePublished` 字段，但那个值是**页面渲染时间**（实测就是当下这一秒），拿来当发布时间是错的。
+
+真正的时间戳在 SSR 塞进 `<script>` 的 `window.__INITIAL_STATE__` 里（`"time":1786632183000`，
+毫秒）。规则的 `publishedFrom` 从 script 的 textContent 里正则取，锚到 `"noteDetailMap"` 那段
+再往后找第一个 `"time"`，取不到就退一步按 URL 里的笔记 id 定位。不从整段头上找：state 里
+还带着推荐流，第一个 `"time"` 未必是这条笔记的。
+
+实测四条对照页面显示：「6天前」→ 2026-08-13、「5天前」→ 2026-08-15、「07-28」→ 2026-07-28、
+「7小时前」→ 当天 13:12，全部吻合。
 
 **图片地址不要改。** URL 长这样：
 
@@ -193,6 +207,7 @@ Medium、Reddit、HackerNews 等）。它们只影响**标签**叫什么，不�
      normalizePublished: (t) => t,  // 时间格式怪的时候用
      drop: ['.ad-slot'],            // 规则级的额外删除项
      title: '.post-title',          // 标题不在 og:title 里，或者 og:title 带站点名后缀
+     publishedFrom: (doc, url) => '',// 页面上只有相对时间、真实时间藏在别处时用
      rewriteImageSrc: (src) => src, // 改图片地址（缩略图换原图之类）
      imageReferer: 'https://example.com/',  // 图片站点要防盗链 Referer 时用
      imageHosts: ['img.example.com'],       // 上面那个 Referer 补给哪些域名
