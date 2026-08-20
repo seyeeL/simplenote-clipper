@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shouldDropByClass, stripSiteSuffix } from '../lib/extract.js';
+import { dropNested, shouldDropByClass, stripSiteSuffix } from '../lib/extract.js';
 
 test('明确的噪声容器，文字再多也删', () => {
 	assert.equal(
@@ -84,4 +84,45 @@ test('stripSiteSuffix 切掉 document.title 的站点后缀', () => {
 	// 整个标题就是站点名时别切成空串
 	assert.equal(stripSiteSuffix('某站', '某站'), '某站');
 	assert.equal(stripSiteSuffix('标题 - a.b', 'a.b'), '标题');
+});
+
+// dropNested 只用 contains，手搓两个字段就够
+function box(name, children = []) {
+	const node = { name, children };
+	node.contains = (other) =>
+		other !== node && children.some((c) => c === other || c.contains?.(other));
+	return node;
+}
+
+test('嵌套的匹配只留最外层', () => {
+	// 微博：兜底的 wbtext 就套在 wbpro-feed-content 里，两块都收正文会重复一遍
+	const text = box('wbtext');
+	const feed = box('feed-content', [text]);
+	assert.deepEqual(dropNested([feed, text]), [feed]);
+	// 顺序反过来结果一样
+	assert.deepEqual(dropNested([text, feed]), [feed]);
+});
+
+test('平级的匹配都留着，顺序不变', () => {
+	const a = box('a');
+	const b = box('b');
+	assert.deepEqual(dropNested([a, b]), [a, b]);
+});
+
+test('同一个元素被多个选择器命中只算一次', () => {
+	const a = box('a');
+	assert.deepEqual(dropNested([a, a]), [a]);
+});
+
+test('三层嵌套只留最外层', () => {
+	const inner = box('inner');
+	const mid = box('mid', [inner]);
+	const outer = box('outer', [mid, inner]);
+	assert.deepEqual(dropNested([outer, mid, inner]), [outer]);
+});
+
+test('没有 contains 的节点不炸', () => {
+	const bare = { name: 'bare' };
+	assert.deepEqual(dropNested([bare]), [bare]);
+	assert.deepEqual(dropNested([]), []);
 });

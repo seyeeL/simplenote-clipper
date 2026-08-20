@@ -27,6 +27,14 @@ if (!url) {
 	process.exit(1);
 }
 
+// 全局 fetch / WebSocket 是 Node 22 才都齐的。缺了会在下面的重试循环里被
+// catch 吃掉，最后报成「Chrome 没起来」——查半天查到 node 版本上。
+const missing = ['fetch', 'WebSocket'].filter((name) => typeof globalThis[name] !== 'function');
+if (missing.length) {
+	console.error(`需要 Node 22+（缺少全局 ${missing.join(' / ')}），当前是 ${process.version}。`);
+	process.exit(1);
+}
+
 function findChrome() {
 	const candidates = [
 		process.env.CHROME_PATH,
@@ -116,14 +124,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 try {
 	let ready = false;
+	let lastError = '';
 	for (let i = 0; i < 80 && !ready; i += 1) {
 		try {
 			ready = (await fetch(`http://127.0.0.1:${PORT}/json/version`)).ok;
-		} catch {
+		} catch (err) {
+			lastError = err?.message || String(err);
 			await sleep(300);
 		}
 	}
-	if (!ready) throw new Error('Chrome 没起来');
+	// 端口一直连不上的原因五花八门（Chrome 起不来、端口被占、代理拦本地回环），
+	// 把最后一次的报错带出来，别让调用方对着一句「没起来」猜
+	if (!ready) throw new Error(`Chrome 没起来（127.0.0.1:${PORT} 连不上：${lastError || '未知原因'}）`);
 
 	const target = await (
 		await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })
