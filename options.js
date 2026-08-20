@@ -20,6 +20,7 @@ async function renderSettings() {
 	const settings = await loadSettings();
 	$('default-tags').value = settings.defaultTags;
 	$('pinned').checked = Boolean(settings.pinned);
+	$('title-heading').checked = Boolean(settings.titleHeading);
 }
 
 $('send-code').addEventListener('click', async () => {
@@ -75,6 +76,7 @@ $('save-settings').addEventListener('click', async () => {
 	await saveSettings({
 		defaultTags: $('default-tags').value,
 		pinned: $('pinned').checked,
+		titleHeading: $('title-heading').checked,
 	});
 	setStatus('settings-status', '已保存。', 'ok');
 });

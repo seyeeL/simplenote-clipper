@@ -7,6 +7,7 @@ import {
 	buildNoteData,
 	buildTags,
 	normalizeTags,
+	stripDuplicateHeading,
 	toDateString,
 } from '../lib/note.js';
 
@@ -76,6 +77,41 @@ test('第一行只放标题 —— Simplenote 按第一行显示笔记名，fron
 	assert.equal(content.split('\n')[0], '标题 带换行');
 	assert.equal(content.split('\n')[1], '');
 	assert.equal(content.split('\n')[2], '---');
+});
+
+test('titleHeading 开关控制第一行要不要写成 # 标题，默认关闭', () => {
+	const base = { title: '标题', url: 'https://a.b', markdown: '正文', clippedAt: new Date(2026, 7, 20) };
+	assert.equal(buildNoteContent(base).split('\n')[0], '标题');
+	assert.equal(buildNoteContent({ ...base, titleHeading: true }).split('\n')[0], '# 标题');
+	// 开着的时候 frontmatter 位置不变
+	assert.equal(buildNoteContent({ ...base, titleHeading: true }).split('\n')[2], '---');
+});
+
+test('正文开头和标题重复的 heading 去掉，不留两行标题', () => {
+	const content = buildNoteContent({
+		title: '一个人状态变差，往往是从不想见人开始的',
+		url: 'https://a.b',
+		markdown: '# 一个人状态变差，往往是从不想见人开始的\n\n很多人生活一不顺…',
+		clippedAt: new Date(2026, 7, 20),
+	});
+	assert.equal(content.match(/一个人状态变差/g).length, 1);
+	assert.ok(content.endsWith('很多人生活一不顺…'));
+});
+
+test('正文 heading 和标题不一致时保留 —— 那是文章自己的小节标题', () => {
+	const content = buildNoteContent({
+		title: '文章标题',
+		markdown: '## 第一节\n\n正文',
+		clippedAt: new Date(2026, 7, 20),
+	});
+	assert.ok(content.includes('## 第一节'));
+});
+
+test('去重比较忽略空白差异，但不做模糊匹配', () => {
+	assert.equal(stripDuplicateHeading('#  标题  中间空格\n\n正文', '标题 中间空格'), '正文');
+	assert.equal(stripDuplicateHeading('# 标题前缀更长一些\n\n正文', '标题前缀'), '# 标题前缀更长一些\n\n正文');
+	assert.equal(stripDuplicateHeading('正文没有 heading', '标题'), '正文没有 heading');
+	assert.equal(stripDuplicateHeading('# 标题', ''), '# 标题');
 });
 
 test('frontmatter 是 url / published / created 三行', () => {

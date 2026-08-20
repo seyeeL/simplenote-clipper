@@ -1,55 +1,38 @@
-"""生成 16/48/128 PNG 图标。
+"""从官方图标源生成 16/48/128 PNG。
 
-不引 SVG 渲染库，直接用 Pillow 画，视觉和 source.svg 对齐：
-Simplenote 蓝 #3361CC 圆角方底 + 白色「剪」字。
+`source-256.png` 是 Simplenote 桌面客户端的应用图标，取自
+https://github.com/Automattic/simplenote-electron
+（resources/images/icon_256x256.png）。这里只做缩放，不改设计。
 
-改图后跑一次（任意带 Pillow 的 python 都行）：
+需要更新图标时重新下载 source-256.png 再跑一次（任意带 Pillow 的 python）：
   python icons/render.py
 """
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 HERE = Path(__file__).parent
-BG = (51, 97, 204, 255)      # #3361CC，Simplenote 品牌蓝
-FG = (255, 255, 255, 255)
-
-# Windows / macOS 常见中文字体 fallback
-FONT_CANDIDATES = [
-    r"C:\Windows\Fonts\msyhbd.ttc",   # 微软雅黑 Bold
-    r"C:\Windows\Fonts\msyh.ttc",     # 微软雅黑
-    r"C:\Windows\Fonts\simhei.ttf",   # 黑体
-    "/System/Library/Fonts/PingFang.ttc",
-]
+SOURCE = HERE / "source-256.png"
+SIZES = (16, 48, 128)
+# 源图四周有约 14px 留白和投影。工具栏图标只有 16px，留白会让白色圆盘
+# 在浅色工具栏上几乎消失，所以先裁到实心部分。
+SOLID_ALPHA = 200
 
 
-def load_font(size):
-    for path in FONT_CANDIDATES:
-        if Path(path).exists():
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
-
-
-def render(size):
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    radius = max(2, size // 5)
-    draw.rounded_rectangle([(0, 0), (size - 1, size - 1)], radius=radius, fill=BG)
-
-    font = load_font(int(size * 0.68))
-    text = "剪"
-    bbox = draw.textbbox((0, 0), text, font=font, anchor="lt")
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    # 居中，补偿 bbox 的原点偏移
-    draw.text(((size - w) / 2 - bbox[0], (size - h) / 2 - bbox[1]), text, font=font, fill=FG)
-    return img
+def trim(img):
+    solid = img.getchannel("A").point(lambda v: 255 if v > SOLID_ALPHA else 0)
+    box = solid.getbbox()
+    return img.crop(box) if box else img
 
 
 def main():
-    for s in (16, 48, 128):
-        out = HERE / f"{s}.png"
-        render(s).save(out)
+    if not SOURCE.exists():
+        raise SystemExit(f"缺少图标源 {SOURCE}")
+
+    src = trim(Image.open(SOURCE).convert("RGBA"))
+    for size in SIZES:
+        out = HERE / f"{size}.png"
+        src.resize((size, size), Image.LANCZOS).save(out)
         print(f"wrote {out}")
 
 

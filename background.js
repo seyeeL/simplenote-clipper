@@ -74,7 +74,11 @@ export async function clip({ tabId, tags } = {}) {
 		const settings = await loadSettings();
 		const article = await collectArticle(tabId);
 
-		const content = buildNoteContent({ ...article, clippedAt: new Date() });
+		const content = buildNoteContent({
+			...article,
+			clippedAt: new Date(),
+			titleHeading: settings.titleHeading,
+		});
 		const noteData = buildNoteData({
 			content,
 			// 作者和来源站点不写进 frontmatter，走标签

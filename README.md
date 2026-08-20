@@ -42,6 +42,12 @@ created: 2026-08-20
 
 笔记默认打上 `markdown` 这个 systemTag，Simplenote 客户端里会按 Markdown 渲染。
 
+设置里可以把第一行改成 `# 标题`（默认关闭）。默认关是因为 Simplenote 的笔记列表直接
+显示第一行原文，开了会连 `#` 一起显示；想让笔记正文本身是规范 Markdown 就打开它。
+
+正文开头如果有和标题一模一样的 heading（大部分文章页的 `<h1>` 就是标题），会被去掉，
+不然笔记里会连着出现两行标题。不一致的 heading 保留 —— 那是文章自己的小节标题。
+
 ### 标签
 
 标签 = 你手填的（或设置里的默认值）+ 作者 + 来源站点。作者名里的空格会换成连字符，
@@ -106,7 +112,10 @@ node --test "tests/*.test.mjs"
 需要 Node 18 以上（`node --test` 从 18 开始提供）。系统默认的 node 版本较低时，
 用 nvm / fnm 这类工具切一个新版本再跑。
 
-改图标后重新生成 PNG（任意带 Pillow 的 python）：
+图标用 Simplenote 官方应用图标，源文件 `icons/source-256.png` 取自
+[simplenote-electron](https://github.com/Automattic/simplenote-electron)
+的 `resources/images/icon_256x256.png`。`render.py` 只做裁白边和缩放，不改设计
+（源图四周有约 14px 留白，16px 工具栏图标不裁的话白色圆盘在浅色工具栏上几乎看不见）：
 
 ```bash
 python icons/render.py

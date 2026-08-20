@@ -7,6 +7,9 @@ const SETTINGS_KEY = 'settings';
 const DEFAULT_SETTINGS = {
 	defaultTags: 'clip',
 	pinned: false,
+	// 第一行是否写成 "# 标题"。默认关闭：Simplenote 列表里直接显示第一行，
+	// 带 # 会连井号一起显示。
+	titleHeading: false,
 };
 
 /** @returns {Promise<{username: string, token: string} | null>} */
