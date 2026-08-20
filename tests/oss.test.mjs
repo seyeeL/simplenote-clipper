@@ -97,15 +97,19 @@ test('presignPutUrl 把凭证放 query —— Date 是 fetch 禁止头，走请�
 		bucket: 'my-bucket',
 		region: 'oss-cn-beijing',
 	};
-	const url = new URL(
-		await presignPutUrl({
-			config,
-			key: 'clipper/2026-08/abc.png',
-			contentType: 'image/png',
-			expiresSeconds: 300,
-			now: 1_755_000_000_000,
-		}),
-	);
+	const signed = await presignPutUrl({
+		config,
+		key: 'clipper/2026-08/abc.png',
+		contentType: 'image/png',
+		expiresSeconds: 300,
+		now: 1_755_000_000_000,
+	});
+	const url = new URL(signed.url);
+
+	// stringToSign 一起返回：OSS 报 SignatureDoesNotMatch 时会回显它算的那份，
+	// 两边一比就能分辨是格式错还是密钥错
+	assert.equal(signed.stringToSign, 'PUT\n\nimage/png\n1755000300\n/my-bucket/clipper/2026-08/abc.png');
+	assert.equal(signed.expires, '1755000300');
 
 	assert.equal(url.origin, 'https://my-bucket.oss-cn-beijing.aliyuncs.com');
 	assert.equal(url.pathname, '/clipper/2026-08/abc.png');

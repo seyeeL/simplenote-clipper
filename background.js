@@ -62,8 +62,27 @@ export async function probeOss() {
 		const { url } = await probeUpload(oss);
 		return { ok: true, message: `上传成功：${url}` };
 	} catch (err) {
-		return { ok: false, stage: 'upload', message: err?.message ?? String(err) };
+		return {
+			ok: false,
+			stage: 'upload',
+			message: `${err?.message ?? String(err)}${signatureVerdict(err)}`,
+		};
 	}
+}
+
+/**
+ * SignatureDoesNotMatch 时 OSS 会回显它算出来的 StringToSign。
+ * 和本地拼的一比就能分辨：一样 = 密钥填错了；不一样 = 签名格式有问题。
+ * 少这一步就得靠猜，实测这正是最耗时间的地方。
+ */
+function signatureVerdict(err) {
+	const remote = err?.detail?.stringToSign;
+	const local = err?.detail?.localStringToSign;
+	if (err?.code !== 'SignatureDoesNotMatch' || !remote || !local) return '';
+	return remote === local
+		? '\n\n签名格式没问题（OSS 算的 StringToSign 和本地完全一致），问题在 AccessKey Secret：' +
+			'重新复制一遍，注意别多空格、别漏字符、别和别的密钥串行。'
+		: `\n\n签名格式对不上，这是扩展的 bug。\nOSS 算的：${JSON.stringify(remote)}\n本地拼的：${JSON.stringify(local)}`;
 }
 
 async function flashBadge(ok) {
