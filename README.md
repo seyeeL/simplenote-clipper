@@ -65,6 +65,32 @@ created: 2026-08-20
 
 作者和站点只进标签，不进 frontmatter。
 
+## 图床（可选）
+
+不配的话，笔记里就是原图链接。微信、知乎这类站点有防盗链：带错 Referer 取图只会拿到
+「未经允许不可引用」的占位图，换个客户端看就废了。配了图床，正文里的图片会先转存到
+你自己的阿里云 OSS，笔记里存的是图床地址。
+
+设置页填 AccessKey ID / Secret、Bucket、Region，可选路径前缀和自定义域名。
+
+几个实现上的决定：
+
+- **用 URL 签名，不用请求头签名。** 请求头方案要发 `Date` 头，而 `Date` 是 fetch 规范里的
+  禁止头，浏览器会静默删掉，签名必然对不上。URL 签名把 `OSSAccessKeyId` / `Expires` /
+  `Signature` 放 query，不碰任何禁止头。
+- **对象名是内容哈希**（`<前缀>/<年-月>/<sha256 前 16 位>.<后缀>`）。同一张图重复剪藏不会
+  传两份，也不会因为原站文件名撞车而互相覆盖。
+- **单张失败就保留原链接**，不让整次剪藏失败。少一张图的笔记比没有笔记有用。
+- **抓图不发 Referer**。扩展 service worker 默认就不发，防盗链站点反而给原图。
+- 单张超过 10 MB 跳过；同时最多传 4 张。
+- bucket 不需要配 CORS 规则：扩展拿到 host 权限后发请求不受 CORS 限制。
+
+**权限**：抓任意站点的图需要跨域读取权限，这是个可选权限（`optional_host_permissions`），
+只在设置页勾选「启用图床」时才向你申请。不用图床的话，装扩展不需要授权全站访问。
+
+**密钥**：AccessKey 存在本机 `chrome.storage.local`。建议用只有 `oss:PutObject` 权限、
+并且限定到这个 bucket 和路径前缀的 RAM 子账号，别用主账号密钥。
+
 ## 接口
 
 | 用途 | 端点 |
@@ -91,6 +117,8 @@ created: 2026-08-20
 | `lib/html2md.js` | DOM → Markdown。只用五个 DOM 接口走树，纯逻辑，可 node 测 |
 | `lib/note.js` | 纯函数：拼笔记正文、组 Simperium payload、标签规范化 |
 | `lib/domains.js` | 域名 → 标签映射表。加常用站点改这里 |
+| `lib/images.js` | 正文里图片链接的收集与替换、后缀判定、内容哈希 |
+| `lib/oss.js` | 阿里云 OSS 签名与上传 |
 | `lib/simperium.js` | 登录与写入的 HTTP 客户端，错误统一包成 `SimperiumError` |
 | `storage.js` | `chrome.storage.local` 封装。**故意不放 lib/**，那个目录是 web accessible 的 |
 | `background.js` | service worker：注入抓取 → 拼正文 → POST。放这里是因为 popup 一关 fetch 就断 |
@@ -148,6 +176,8 @@ node tools/probe.mjs "<url>" --show   # 开真窗口，不用 headless
   一刀切会把正文删光。反过来，正文容器如果被命名成 `related` / `comments` 就一定会丢。
 - **不去重**。同一个 URL 剪两次会产生两条笔记。查重要走 Simperium 的 index 接口全表扫，
   代价和收益不匹配，先不做。
-- **只存文本**。Simplenote 不支持附件，图片以 Markdown 链接形式保留，原图不落地。
+- **只存文本**。Simplenote 不支持附件，图片以 Markdown 链接形式保留。想让图片长期可用
+  就配图床，否则原站换域名或加防盗链之后笔记里的图就废了。
+- **图床只支持阿里云 OSS**。腾讯 COS、七牛这些签名方式不同，没做。
 - **不做划词剪藏**。当前只有整页正文一条路径。
 - **受限页面剪不了**：`chrome://`、扩展商店、PDF 阅读器不允许注入脚本，会提示换页面。

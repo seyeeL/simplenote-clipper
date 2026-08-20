@@ -42,8 +42,11 @@ async function init() {
 
 		$('clip').disabled = false;
 		if (result?.ok) {
-			const tags = result.tags?.length ? `　标签 ${result.tags.join(' ')}` : '';
-			setStatus(`已存入 Simplenote（${result.chars} 字符）${tags}`, 'ok');
+			const parts = [`已存入 Simplenote（${result.chars} 字符）`];
+			if (result.images?.uploaded) parts.push(`图片转存 ${result.images.uploaded} 张`);
+			if (result.images?.failed) parts.push(`${result.images.failed} 张失败，保留原链接`);
+			if (result.tags?.length) parts.push(`标签 ${result.tags.join(' ')}`);
+			setStatus(parts.join('　'), 'ok');
 		} else {
 			setStatus(result?.message ?? '剪藏失败。', 'err');
 		}

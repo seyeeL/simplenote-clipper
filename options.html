@@ -101,6 +101,47 @@
     <div class="status" id="settings-status"></div>
   </section>
 
+  <section>
+    <h2>图床（阿里云 OSS）</h2>
+    <p class="hint">
+      开了之后，正文里的图片会先转存到你自己的 OSS，笔记里存的是图床地址。
+      不开就直接引用原图链接 —— 微信、知乎这类站点有防盗链，原链接换个地方看可能只剩占位图。
+    </p>
+
+    <div class="row">
+      <input type="checkbox" id="oss-enabled">
+      <label for="oss-enabled">启用图床</label>
+    </div>
+
+    <div id="oss-fields">
+      <label for="oss-key-id">AccessKey ID</label>
+      <input type="text" id="oss-key-id" autocomplete="off" spellcheck="false">
+
+      <label for="oss-key-secret">AccessKey Secret</label>
+      <input type="password" id="oss-key-secret" autocomplete="off" spellcheck="false">
+
+      <p class="hint" style="margin:6px 0 0">
+        建议用只有 <code>oss:PutObject</code> 权限、且限定到这个 bucket 和路径前缀的 RAM 子账号。
+        密钥存在本机 <code>chrome.storage.local</code>，主账号密钥泄露的代价太大。
+      </p>
+
+      <label for="oss-bucket">Bucket</label>
+      <input type="text" id="oss-bucket" autocomplete="off" spellcheck="false">
+
+      <label for="oss-region">Region</label>
+      <input type="text" id="oss-region" autocomplete="off" spellcheck="false" placeholder="oss-cn-beijing">
+
+      <label for="oss-path">路径前缀</label>
+      <input type="text" id="oss-path" autocomplete="off" spellcheck="false" placeholder="clipper/">
+
+      <label for="oss-domain">自定义域名（可选）</label>
+      <input type="text" id="oss-domain" autocomplete="off" spellcheck="false" placeholder="https://img.example.com">
+
+      <button id="save-oss">保存图床设置</button>
+    </div>
+    <div class="status" id="oss-status"></div>
+  </section>
+
   <script type="module" src="options.js"></script>
 </body>
 </html>

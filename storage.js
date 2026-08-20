@@ -10,6 +10,16 @@ const DEFAULT_SETTINGS = {
 	// 第一行是否写成 "# 标题"。默认关闭：Simplenote 列表里直接显示第一行，
 	// 带 # 会连井号一起显示。
 	titleHeading: false,
+	// 图床（阿里云 OSS）。默认关闭，不填就走原图链接。
+	oss: {
+		enabled: false,
+		accessKeyId: '',
+		accessKeySecret: '',
+		bucket: '',
+		region: 'oss-cn-beijing',
+		path: 'clipper/',
+		customDomain: '',
+	},
 };
 
 /** @returns {Promise<{username: string, token: string} | null>} */
@@ -30,11 +40,14 @@ export async function clearAuth() {
 
 export async function loadSettings() {
 	const stored = await chrome.storage.local.get(SETTINGS_KEY);
-	return { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] ?? {}) };
+	const saved = stored[SETTINGS_KEY] ?? {};
+	// oss 是嵌套对象，浅合并会让新增字段丢默认值
+	return { ...DEFAULT_SETTINGS, ...saved, oss: { ...DEFAULT_SETTINGS.oss, ...(saved.oss ?? {}) } };
 }
 
 export async function saveSettings(patch) {
-	const next = { ...(await loadSettings()), ...patch };
+	const current = await loadSettings();
+	const next = { ...current, ...patch, oss: { ...current.oss, ...(patch.oss ?? {}) } };
 	await chrome.storage.local.set({ [SETTINGS_KEY]: next });
 	return next;
 }

@@ -72,6 +72,59 @@ $('logout').addEventListener('click', async () => {
 	setStatus('auth-status', '已退出，本机 token 已清除。', 'ok');
 });
 
+// 图床要抓任意站点的图再传 OSS，需要跨域读取权限。做成可选权限，
+// 不开图床的人装完扩展不用授权全站访问。
+const OSS_ORIGINS = { origins: ['<all_urls>'] };
+
+const OSS_FIELDS = {
+	accessKeyId: 'oss-key-id',
+	accessKeySecret: 'oss-key-secret',
+	bucket: 'oss-bucket',
+	region: 'oss-region',
+	path: 'oss-path',
+	customDomain: 'oss-domain',
+};
+
+async function renderOss() {
+	const { oss } = await loadSettings();
+	$('oss-enabled').checked = Boolean(oss.enabled);
+	for (const [key, id] of Object.entries(OSS_FIELDS)) $(id).value = oss[key] ?? '';
+	$('oss-fields').classList.toggle('hidden', !oss.enabled);
+}
+
+function readOssFields() {
+	const oss = {};
+	for (const [key, id] of Object.entries(OSS_FIELDS)) oss[key] = $(id).value.trim();
+	return oss;
+}
+
+$('oss-enabled').addEventListener('change', async () => {
+	const wanted = $('oss-enabled').checked;
+	if (wanted && !(await chrome.permissions.contains(OSS_ORIGINS))) {
+		// 必须在用户点击这个手势里发起，异步等待之后再请求会被拒
+		const granted = await chrome.permissions.request(OSS_ORIGINS);
+		if (!granted) {
+			$('oss-enabled').checked = false;
+			setStatus('oss-status', '没拿到跨域读取权限，图床没法抓图，已保持关闭。', 'err');
+			return;
+		}
+	}
+	await saveSettings({ oss: { ...readOssFields(), enabled: wanted } });
+	$('oss-fields').classList.toggle('hidden', !wanted);
+	setStatus('oss-status', wanted ? '图床已启用，记得把下面几项填全。' : '图床已关闭，之后直接引用原图链接。', 'ok');
+});
+
+$('save-oss').addEventListener('click', async () => {
+	const oss = readOssFields();
+	const missing = ['accessKeyId', 'accessKeySecret', 'bucket', 'region'].filter((k) => !oss[k]);
+	if (missing.length) {
+		setStatus('oss-status', 'AccessKey ID / Secret / Bucket / Region 都要填。', 'err');
+		return;
+	}
+	await saveSettings({ oss: { ...oss, enabled: $('oss-enabled').checked } });
+	setStatus('oss-status', '已保存。', 'ok');
+});
+
 $('save-settings').addEventListener('click', async () => {
 	await saveSettings({
 		defaultTags: $('default-tags').value,
@@ -83,3 +136,4 @@ $('save-settings').addEventListener('click', async () => {
 
 await renderAuth();
 await renderSettings();
+await renderOss();

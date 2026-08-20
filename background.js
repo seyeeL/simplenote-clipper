@@ -2,12 +2,19 @@
 // 放在这里而不是 popup 里，是因为 popup 一关闭它的 fetch 就被掐断，
 // 而剪藏经常要等几秒。
 
+import { collectImageUrls, extensionFor, rewriteImageUrls, sha256Hex } from './lib/images.js';
 import { buildNoteContent, buildNoteData, buildTags } from './lib/note.js';
+import { buildObjectKey, isOssConfigured, putObject } from './lib/oss.js';
 import { createNote, SimperiumError } from './lib/simperium.js';
 import { loadAuth, loadSettings } from './storage.js';
 
 const MENU_ID = 'clip-to-simplenote';
 const BADGE_MS = 4000;
+
+// 单张图上限。超过基本是原图大图，转存意义不大，还拖慢剪藏
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+// 同时传几张。图多的文章别一次把带宽打满
+const UPLOAD_CONCURRENCY = 4;
 
 chrome.runtime.onInstalled.addListener(() => {
 	chrome.contextMenus.create({
@@ -63,6 +70,59 @@ async function collectArticle(tabId) {
 	return injected.result;
 }
 
+/** 抓一张图传到 OSS，返回新地址。 */
+async function mirrorOne(url, oss) {
+	// service worker 默认不发 Referer，微信这类防盗链站点反而能正常返回原图；
+	// 带错 Referer 会拿到「未经允许不可引用」的占位图
+	const res = await fetch(url);
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+	const buffer = await res.arrayBuffer();
+	if (!buffer.byteLength) throw new Error('空响应');
+	if (buffer.byteLength > MAX_IMAGE_BYTES) throw new Error('超过大小上限');
+
+	const contentType = res.headers.get('Content-Type') ?? '';
+	const ext = extensionFor(contentType, url);
+	const key = buildObjectKey({ prefix: oss.path, hash: await sha256Hex(buffer), ext });
+	return putObject({
+		config: oss,
+		key,
+		body: buffer,
+		// 上游偶尔返回 application/octet-stream，按后缀回正，否则图床里点开会变成下载
+		contentType: contentType.startsWith('image/') ? contentType.split(';')[0].trim() : `image/${ext}`,
+	});
+}
+
+/**
+ * 把正文里的图片转存到图床。单张失败就保留原链接，不让整次剪藏失败 ——
+ * 少一张图的笔记，比没有笔记有用。
+ */
+async function mirrorImages(markdown, oss) {
+	const urls = collectImageUrls(markdown);
+	if (!urls.length) return { markdown, uploaded: 0, failed: 0 };
+
+	const mapping = {};
+	let failed = 0;
+	for (let i = 0; i < urls.length; i += UPLOAD_CONCURRENCY) {
+		await Promise.all(
+			urls.slice(i, i + UPLOAD_CONCURRENCY).map(async (url) => {
+				try {
+					mapping[url] = await mirrorOne(url, oss);
+				} catch (err) {
+					failed += 1;
+					console.warn('[图床] 转存失败，保留原链接:', url, err?.message ?? err);
+				}
+			}),
+		);
+	}
+
+	return {
+		markdown: rewriteImageUrls(markdown, mapping),
+		uploaded: Object.keys(mapping).length,
+		failed,
+	};
+}
+
 export async function clip({ tabId, tags } = {}) {
 	try {
 		const auth = await loadAuth();
@@ -74,8 +134,14 @@ export async function clip({ tabId, tags } = {}) {
 		const settings = await loadSettings();
 		const article = await collectArticle(tabId);
 
+		let images = { markdown: article.markdown, uploaded: 0, failed: 0 };
+		if (isOssConfigured(settings.oss)) {
+			images = await mirrorImages(article.markdown, settings.oss);
+		}
+
 		const content = buildNoteContent({
 			...article,
+			markdown: images.markdown,
 			clippedAt: new Date(),
 			titleHeading: settings.titleHeading,
 		});
@@ -98,6 +164,7 @@ export async function clip({ tabId, tags } = {}) {
 			title: content.split('\n', 1)[0],
 			chars: content.length,
 			tags: noteData.tags,
+			images: { uploaded: images.uploaded, failed: images.failed },
 		};
 	} catch (err) {
 		await flashBadge(false);
