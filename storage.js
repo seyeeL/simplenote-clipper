@@ -11,6 +11,9 @@ const DEFAULT_SETTINGS = {
 	// 第一行是否写成 "# 标题"。默认关闭：Simplenote 列表里直接显示第一行，
 	// 带 # 会连井号一起显示。
 	titleHeading: false,
+	// 作者名和来源域名要不要也打成标签，默认关。
+	tagAuthor: false,
+	tagSite: false,
 	// 图床（阿里云 OSS）。默认关闭，不填就走原图链接。
 	oss: {
 		enabled: false,

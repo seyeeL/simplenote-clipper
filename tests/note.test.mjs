@@ -38,21 +38,46 @@ test('作者字段抓到整段简介时不打标签（>40 字符）', () => {
 	assert.equal(authorTag('x'.repeat(41)), '');
 });
 
-test('buildTags = 手填标签 + 作者 + 站点，并去重', () => {
+test('默认只有手填标签，作者和域名都不加', () => {
 	assert.deepEqual(
 		buildTags({ tags: 'clip 技术', author: '张三', url: 'https://mp.weixin.qq.com/s/abc' }),
+		['clip', '技术'],
+	);
+});
+
+test('开了开关才加作者 / 站点标签，并去重', () => {
+	assert.deepEqual(
+		buildTags({
+			tags: 'clip 技术',
+			author: '张三',
+			url: 'https://mp.weixin.qq.com/s/abc',
+			withAuthor: true,
+			withSite: true,
+		}),
 		['clip', '技术', '张三', '公众号'],
+	);
+	// 两个开关互不影响
+	assert.deepEqual(
+		buildTags({ tags: 'clip', author: '张三', url: 'https://weibo.com/x', withAuthor: true }),
+		['clip', '张三'],
+	);
+	assert.deepEqual(
+		buildTags({ tags: 'clip', author: '张三', url: 'https://weibo.com/x', withSite: true }),
+		['clip', '微博'],
 	);
 	// 手填标签里已经有站点名时不重复加
 	assert.deepEqual(
-		buildTags({ tags: '公众号', url: 'https://mp.weixin.qq.com/s/abc' }),
+		buildTags({ tags: '公众号', url: 'https://mp.weixin.qq.com/s/abc', withSite: true }),
 		['公众号'],
 	);
 });
 
 test('没有作者或 URL 时 buildTags 不产出空标签', () => {
-	assert.deepEqual(buildTags({ tags: 'clip' }), ['clip']);
-	assert.deepEqual(buildTags({ tags: 'clip', url: '不是个 URL' }), ['clip']);
+	assert.deepEqual(buildTags({ tags: 'clip', withAuthor: true, withSite: true }), ['clip']);
+	assert.deepEqual(
+		buildTags({ tags: 'clip', url: '不是个 URL', withAuthor: true, withSite: true }),
+		['clip'],
+	);
 });
 
 test('toDateString 吃 ISO / Date / 时间戳，解析不出来就原样返回', () => {
@@ -126,7 +151,10 @@ test('作者排在 url 后面，同时也进标签', () => {
 	assert.deepEqual(keys, ['url', 'author', 'created']);
 	assert.ok(content.includes('author: 李 四 \n'));
 	// 标签那份把空格换成连字符，两处不是同一个形态
-	assert.deepEqual(buildTags({ author: '李  四', url: 'https://a.b' }), ['李-四', 'a.b']);
+	assert.deepEqual(
+		buildTags({ author: '李  四', url: 'https://a.b', withAuthor: true, withSite: true }),
+		['李-四', 'a.b'],
+	);
 });
 
 test('没抓到作者就不写 author 行，不留空值', () => {
