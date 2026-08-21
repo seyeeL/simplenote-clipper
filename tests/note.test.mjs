@@ -124,21 +124,6 @@ test('属性区没有收尾的 ---', () => {
 	assert.equal(content.split('\n').filter((l) => l === '---').length, 1);
 });
 
-test('每行属性末尾留一个空格 —— 否则 Simplenote 预览会把连续行并成一段', () => {
-	const content = buildNoteContent({
-		title: 'T',
-		url: 'https://a.b',
-		author: '张三',
-		publishedAt: '2019-12-26',
-		markdown: '正文',
-		clippedAt: new Date(2026, 7, 20),
-	});
-	for (const line of content.split('\n').filter((l) => /^(url|author|published|created):/.test(l))) {
-		assert.ok(line.endsWith(' '), `${JSON.stringify(line)} 末尾少了空格`);
-		assert.ok(!line.endsWith('  '), `${JSON.stringify(line)} 末尾空格多了`);
-	}
-});
-
 test('作者排在 url 后面，同时也进标签', () => {
 	const content = buildNoteContent({
 		title: 'T',
@@ -149,7 +134,7 @@ test('作者排在 url 后面，同时也进标签', () => {
 	});
 	const keys = content.split('\n').filter((l) => l.includes(': ')).map((l) => l.split(':')[0]);
 	assert.deepEqual(keys, ['url', 'author', 'created']);
-	assert.ok(content.includes('author: 李 四 \n'));
+	assert.ok(content.includes('author: 李 四  \n'));
 	// 标签那份把空格换成连字符，两处不是同一个形态
 	assert.deepEqual(
 		buildTags({ author: '李  四', url: 'https://a.b', withAuthor: true, withSite: true }),
@@ -204,10 +189,10 @@ test('整篇的最终形状', () => {
 			'2019年，我的极简高效生活管理法',
 			'---',
 			'',
-			'url: https://mp.weixin.qq.com/s/A4wmSktp8Zbui2CB8th_CA ',
-			'author: Lachel ',
-			'published: 2019-12-26 ',
-			'created: 2026-08-20 ',
+			'url: https://mp.weixin.qq.com/s/A4wmSktp8Zbui2CB8th_CA  ',
+			'author: Lachel  ',
+			'published: 2019-12-26  ',
+			'created: 2026-08-20  ',
 			'',
 			'正文',
 		].join('\n'),
@@ -268,4 +253,21 @@ test('buildNoteData 补齐 publishURL / shareURL —— 缺字段会被别的客
 	const data = buildNoteData({ content: 'x' });
 	assert.equal(data.publishURL, '');
 	assert.equal(data.shareURL, '');
+});
+
+test('属性行末尾是两个空格', () => {
+	// markdown 的硬换行写法。桌面端一个空格还能断开，移动端预览少一个就把几行并成一段
+	const content = buildNoteContent({
+		title: 'T',
+		url: 'https://a.b',
+		author: '某某',
+		publishedAt: '2026-08-01',
+		clippedAt: new Date(2026, 7, 20),
+	});
+	const props = content.split('\n').filter((line) => /^(url|author|published|created): /.test(line));
+	assert.equal(props.length, 4);
+	for (const line of props) {
+		assert.ok(line.endsWith('  '), `${JSON.stringify(line)} 末尾要有两个空格`);
+		assert.ok(!line.endsWith('   '), `${JSON.stringify(line)} 多了一个空格`);
+	}
 });
