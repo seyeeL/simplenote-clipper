@@ -61,6 +61,8 @@
   .footer { margin-top: 12px; font-size: 12px; }
   a { color: #3361cc; }
   .hidden { display: none; }
+  /* label.check 的 display:flex 比 .hidden 更特指，不写这一条藏不住 */
+  label.check.hidden { display: none; }
   @media (prefers-color-scheme: dark) {
     body { background: #1f2124; color: #e5e7eb; }
     .page-title { color: #9ca3af; }
@@ -82,6 +84,10 @@
     <input type="text" id="tags" autocomplete="off" spellcheck="false">
     <label class="check" for="skip-images" title="正文里的图一张都不要，只留文字">
       <input type="checkbox" id="skip-images">不保存图片
+    </label>
+    <label class="check hidden" id="with-replies-row" for="with-replies"
+           title="推特很多内容是一串，主推底下的串和评论按「昵称(时间): 正文」一条一行收进来（只收页面上已经加载出来的那些）">
+      <input type="checkbox" id="with-replies" checked>同时剪藏评论
     </label>
     <button id="clip">剪藏本页</button>
   </div>

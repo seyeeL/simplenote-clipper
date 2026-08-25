@@ -1,3 +1,4 @@
+import { ruleFor } from './lib/site-rules.js';
 import { loadAuth, loadSettings } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
@@ -27,6 +28,11 @@ async function init() {
 	$('tags').value = settings.defaultTags;
 	$('clip-form').classList.remove('hidden');
 
+	// 「同时剪藏评论」只在收得了回复的站点上露面（现在只有推特），默认勾上：
+	// 推特很多内容是一串，只剪第一条等于剪了半句话
+	const withReplies = typeof ruleFor(tab?.url)?.replies === 'function';
+	$('with-replies-row').classList.toggle('hidden', !withReplies);
+
 	$('clip').addEventListener('click', async () => {
 		if (!tab?.id) {
 			setStatus('读不到当前标签页。', 'err');
@@ -39,7 +45,12 @@ async function init() {
 			type: 'clip',
 			// 每次打开都是不勾的状态：跳过图片是「这一篇不要图」的临时决定，
 			// 记住上次的选择反而会让人不知不觉丢掉后面几篇的配图
-			payload: { tabId: tab.id, tags: $('tags').value, skipImages: $('skip-images').checked },
+			payload: {
+				tabId: tab.id,
+				tags: $('tags').value,
+				skipImages: $('skip-images').checked,
+				withReplies: withReplies && $('with-replies').checked,
+			},
 		});
 
 		$('clip').disabled = false;
