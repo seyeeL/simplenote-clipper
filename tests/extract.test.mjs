@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
 	dropNested,
+	keepGuard,
 	keepLineBreaks,
 	shouldDropByClass,
 	stripSiteSuffix,
@@ -92,6 +93,45 @@ test('stripSiteSuffix 切掉 document.title 的站点后缀', () => {
 	// 整个标题就是站点名时别切成空串
 	assert.equal(stripSiteSuffix('某站', '某站'), '某站');
 	assert.equal(stripSiteSuffix('标题 - a.b', 'a.b'), '标题');
+});
+
+// keepGuard 只用 matches / querySelectorAll / contains，手搓这三个就够
+function guardBox(selector, children = []) {
+	const node = { selector, children };
+	node.matches = (s) => s === selector;
+	node.contains = (other) =>
+		other !== node && children.some((c) => c === other || c.contains?.(other));
+	node.querySelectorAll = (s) =>
+		children.flatMap((c) => [...(c.matches?.(s) ? [c] : []), ...(c.querySelectorAll?.(s) ?? [])]);
+	return node;
+}
+
+test('keep 名单里的块连同子树都不按类名判噪声', () => {
+	// 公众号贴图页：p.share_notice 命中弱证据词 share，字数又不到保命线；
+	// 里面的 a.js_common_share_desc_link 同样命中，只保护外层链接文字还是会没
+	const link = guardBox('a.js_common_share_desc_link');
+	const desc = guardBox('#js_image_desc', [link]);
+	const junk = guardBox('.wx_bottom_modal');
+	const clone = guardBox('#wrapper', [desc, junk]);
+
+	const isKept = keepGuard(clone, ['#js_image_desc']);
+	assert.equal(isKept(desc), true);
+	assert.equal(isKept(link), true, '子树也要豁免');
+	assert.equal(isKept(junk), false, '名单外的照旧走噪声过滤');
+});
+
+test('没配 keep 时不豁免任何元素', () => {
+	const clone = guardBox('#wrapper', [guardBox('.share-bar')]);
+	const isKept = keepGuard(clone, []);
+	assert.equal(isKept(clone.children[0]), false);
+	// 选择器一个都没命中也一样
+	assert.equal(keepGuard(clone, ['#nope'])(clone.children[0]), false);
+});
+
+test('keep 的选择器命中容器自身时也算数', () => {
+	// root 只有一个块时 pickRuleRoot 直接把它当容器，querySelectorAll 找不到它自己
+	const clone = guardBox('#js_image_desc');
+	assert.equal(keepGuard(clone, ['#js_image_desc'])(clone), true);
 });
 
 // dropNested 只用 contains，手搓两个字段就够

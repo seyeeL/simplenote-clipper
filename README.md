@@ -271,7 +271,9 @@ node tools/probe.mjs "<url>" --attach=9224
 - **微博的配图抓不到**，只取了正文。原因和补法见 [docs/sites.md](docs/sites.md)。
 - **噪声过滤按 class / id 命名猜**，会误伤。命名里带 `share`、`nav`、`footer` 这类词但
   文字量大且不是链接堆的容器会被保留 —— 公众号正文就挂在 `p.share_notice_inner` 上，
-  一刀切会把正文删光。反过来，正文容器如果被命名成 `related` / `comments` 就一定会丢。
+  一刀切会把正文删光。短正文顶着这类命名时（公众号贴图页的一两句文案）还是会被删，
+  只能在站点规则里用 `keep` 点名豁免。反过来，正文容器如果被命名成 `related` /
+  `comments` 就一定会丢。
 - **不去重**。同一个 URL 剪两次会产生两条笔记。查重要走 Simperium 的 index 接口全表扫，
   代价和收益不匹配，先不做。
 - **只存文本**。Simplenote 不支持附件，图片以 Markdown 链接形式保留。想让图片长期可用

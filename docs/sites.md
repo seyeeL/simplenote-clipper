@@ -7,7 +7,8 @@
 
 写了专用规则、并且实测通过的站点。这份编号清单只放站点，加一个站点就加一条。
 
-1. **[微信公众号](#微信公众号)** `mp.weixin.qq.com`：正文、作者、时间全部通过。
+1. **[微信公众号](#微信公众号)** `mp.weixin.qq.com`：普通图文、纯文字分享、贴图型（图片消息）三种版式，
+   正文、配图、作者、时间全部通过。
 2. **[微博](#微博)** `weibo.com`、`weibo.cn`：正文、作者、时间、九宫格配图全部通过。
 3. **[小红书](#小红书)** `xiaohongshu.com`：正文、作者、时间、九宫格配图全部通过；**要登录态**。
 
@@ -23,13 +24,21 @@
 
 | 项 | 取法 |
 |----|------|
-| 正文 | `#js_content` |
-| 作者 | `#js_name` |
+| 正文 | 普通图文和纯文字分享 `#js_content`；贴图型 `#js_image_desc` |
+| 配图 | 贴图型 `#page_top_area .swiper_item_img`，排在文字后面 |
+| 作者 | `#js_name`，分享型页面退到 `#js_wx_follow_nickname` |
 | 时间 | `#publish_time` |
 | 标签 | `公众号` |
 
-实测 2026-08-20，[样例文章](https://mp.weixin.qq.com/s/QpoEDH56bWI_7P6WjJu7KQ)，791 字符正文，
-段落完整。
+实测三种版式各一条：
+
+| 版式 | 样例 | 结果 |
+|------|------|------|
+| 普通图文 | [视频译介：简化生活](https://mp.weixin.qq.com/s?__biz=MzUyMjk0NDU4NA==&mid=2247498584&idx=2&sn=8c4884aefbc0c1216e3bba34f9feb53f&scene=142) | 147 字符正文 |
+| 纯文字分享 | [一个人状态变差…](https://mp.weixin.qq.com/s/QpoEDH56bWI_7P6WjJu7KQ) | 791 字符正文 |
+| 贴图型 | [“1:7:2”法则](https://mp.weixin.qq.com/s/7f0LRUthj0_h_20aaoe_OA) | 文案 + 1 张图 |
+
+前两条实测 2026-08-20，贴图型 2026-08-25。作者和时间三条都对。
 
 踩过的坑：这个站点会把整篇正文放在 `<p class="share_notice_inner">` 里。噪声过滤规则里
 有 `share` 这个词，早期版本按类名一刀切，正文从 847 字符掉到 44。现在噪声词分强弱两档，
@@ -37,6 +46,29 @@
 
 另一个坑：公众号排版大量用 `<div>` / `<section>`，一个 `<p>` 都没有。按段落打分选容器
 会得 0 分，转 Markdown 时也会把全文拼成一整行。两处都单独处理过了。
+
+#### 贴图型（图片消息）
+
+`page_type: 2` / `item_show_type: 8` 那种版式：几张大图配一段文案，正文里一个段落标签都
+没有。DOM 和普通图文完全是两套，一条一条对应：
+
+| 坑 | 表现 | 规则 |
+|----|------|------|
+| 文案和图片分家 | 文案只有 `#js_image_desc` 一段，图片在页面顶部的 swiper 里，两块没有共同的正文容器 | `root` 里分别点名，文字在前 |
+| `#js_content` 变了内容 | 这种页面上 `#js_content` 装的是赞赏面板，整块收进来正文会变成「微信扫一扫赞赏作者」 | `#js_content:not(:has(#js_image_content))` |
+| 占位 swiper | 顶上还有个 `aria-hidden` 的占位 swiper，装着同一张首图 | 图片选择器限定在 `#page_top_area` 下 |
+| 短文案被当噪声 | 文案挂在 `p.share_notice` 上，命中弱证据词 `share`，一两句话又够不着 200 字保命线，整块被删 | `keep: ['#js_image_desc']` |
+| 没有 `#js_name` | 分享型页面的号名只在关注条上，`meta author` 还经常是空串 | `author` 补上 `#js_wx_follow_nickname` |
+
+**两条路必须互斥。** `#js_image_desc` 套在 `#js_content` 里，两个选择器都命中的话，`root`
+的嵌套去重只会留下最外层的 `#js_content`，文案反而丢了。`:not(:has(#js_image_content))`
+就是让普通图文那条路在贴图页上不命中。
+
+**图片一次全在 DOM 里。** 五张图的贴图页实测渲染出五个 `.swiper_item_img`，`src` 都是
+真地址，没有懒加载占位，也没有 swiper 循环滚动的复制品（和小红书相反）。
+
+**不用换原图地址。** 页面上的 `src` 带 `tp=webp`，和数据里的 `cdn_url` 是同一张图的两种
+编码：实测 1242×1660 完全一致，webp 88 KB、jpeg 145 KB。webp 更小，直接用页面上那个。
 
 ### 微博
 
@@ -213,6 +245,7 @@ Medium、Reddit、HackerNews 等）。它们只影响**标签**叫什么，不�
      imageHosts: ['img.example.com'],       // 上面那个 Referer 补给哪些域名
      unwrap: ['a.tag'],             // 只要文字不要链接，元素本身脱掉
      stripText: [/\[eoi\]/g],        // 按文本抹掉图标占位这类脏字符
+     keep: ['.short-body'],         // 短正文顶着 share / footer 这类弱证据词时豁免
      keepLineBreaks: ['.desc'],     // 正文分段靠 \n + CSS 时才开
    }
    ```
@@ -222,6 +255,9 @@ Medium、Reddit、HackerNews 等）。它们只影响**标签**叫什么，不�
 
    `root` 传数组时是**并集**：命中的块按顺序拼成一个容器。互相嵌套的只留最外层，
    所以「主选择器 + 兜底选择器」这种写法不会把正文收两遍。
+
+   同一个域名下有几种版式、选择器会互相嵌套时（公众号的贴图页和普通图文），用
+   `:not(:has(…))` 把它们写成互斥的：嵌套去重只留最外层，两条路都命中的话里层那块就丢了。
 
 4. 需要新标签就再改 `lib/domains.js`。
 

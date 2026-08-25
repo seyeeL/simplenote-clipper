@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { SITE_RULES, ruleFor, upgradeSinaImage } from '../lib/site-rules.js';
 
+const wx = SITE_RULES.find((r) => r.name === '微信公众号');
 const weibo = SITE_RULES.find((r) => r.name === '微博');
 const xhs = SITE_RULES.find((r) => r.name === '小红书');
 
@@ -26,6 +27,37 @@ test('URL 解析不了不炸', () => {
 	assert.equal(ruleFor('不是个 URL'), null);
 	assert.equal(ruleFor(''), null);
 	assert.equal(ruleFor(null), null);
+});
+
+test('公众号规则同时管住普通图文和贴图型', () => {
+	const roots = Array.isArray(wx.root) ? wx.root : [wx.root];
+	// 贴图页（图片消息）的文案和图片是分开的两块，都不在 #js_content 下
+	assert.ok(roots.includes('#js_image_desc'), '贴图页的文案在这一段里');
+	assert.ok(
+		roots.some((s) => s.includes('.swiper_item_img')),
+		'贴图页的图片在顶部 swiper 里',
+	);
+	// 顶上还有个 aria-hidden 的占位 swiper，装着同一张首图；不限定范围首图会重复
+	assert.ok(
+		roots.every((s) => !s.includes('.swiper_item_img') || s.includes('#page_top_area')),
+		'图片选择器要限定在 #page_top_area 下，否则占位 swiper 的首图会重复一遍',
+	);
+	// 贴图页上 #js_content 装的是赞赏面板那堆，两条路必须互斥：都命中的话嵌套去重
+	// 只会留下 #js_content，文案反而丢了
+	const article = roots.find((s) => s.startsWith('#js_content'));
+	assert.ok(article, '普通图文仍旧走 #js_content');
+	assert.ok(article.includes(':not('), `${article} 会在贴图页上也命中`);
+});
+
+test('公众号分享型页面也要能取到号名', () => {
+	// 贴图页和纯文字分享页都没有 #js_name，meta author 还常是空串
+	assert.ok(wx.author.includes('#js_name'), '普通图文靠这个');
+	assert.ok(wx.author.includes('#js_wx_follow_nickname'), '分享型页面的号名在关注条上');
+});
+
+test('公众号贴图页的短文案不按类名删', () => {
+	// p.share_notice 命中弱证据词 share，一两句话又够不着 200 字的保命线
+	assert.deepEqual(wx.keep, ['#js_image_desc']);
 });
 
 test('微博的两位年份补成四位', () => {
