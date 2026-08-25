@@ -106,15 +106,15 @@ async function flashBadge(ok) {
  * 所以 lib 的地址要通过 args 传进去，而且 DOM 节点不能跨边界返回 ——
  * markdown 必须在页面内就转好。
  */
-async function collectArticle(tabId) {
+async function collectArticle(tabId, { withReplies = false } = {}) {
 	const libBase = chrome.runtime.getURL('lib/');
 	const [injected] = await chrome.scripting.executeScript({
 		target: { tabId },
-		args: [libBase],
-		func: async (base) => {
+		args: [libBase, withReplies],
+		func: async (base, replies) => {
 			const { extractArticle } = await import(`${base}extract.js`);
 			const { htmlToMarkdown } = await import(`${base}html2md.js`);
-			const article = extractArticle(document, location.href);
+			const article = extractArticle(document, location.href, { withReplies: replies });
 			return {
 				url: article.url,
 				title: article.title,
@@ -225,7 +225,11 @@ async function mirrorImages(markdown, oss, pageUrl) {
 	};
 }
 
-export async function clip({ tabId, tags, skipImages = false } = {}) {
+/**
+ * withReplies 默认开：只有推特这类规则写了 replies 的站点认这个开关，别的站点无所谓；
+ * 右键菜单没有勾选框，走的就是这个默认值。
+ */
+export async function clip({ tabId, tags, skipImages = false, withReplies = true } = {}) {
 	try {
 		const auth = await loadAuth();
 		if (!auth) {
@@ -234,7 +238,7 @@ export async function clip({ tabId, tags, skipImages = false } = {}) {
 		}
 
 		const settings = await loadSettings();
-		const article = await collectArticle(tabId);
+		const article = await collectArticle(tabId, { withReplies });
 
 		// 勾了「不保存图片」就在这里把图删干净，后面图床那一整段自然不用跑
 		const stripped = skipImages
