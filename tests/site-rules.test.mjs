@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SITE_RULES, ruleFor, upgradeSinaImage } from '../lib/site-rules.js';
+import { SITE_RULES, ruleFor, upgradeSinaImage, upgradeTwimgImage } from '../lib/site-rules.js';
+// 推特页面上的时间戳最后要落成笔记里的日期，这一段是跨模块的约定，一起测
+import { toDateString } from '../lib/note.js';
+import { el, fakeDoc } from './fake-dom.mjs';
 
 const wx = SITE_RULES.find((r) => r.name === '微信公众号');
 const weibo = SITE_RULES.find((r) => r.name === '微博');
 const xhs = SITE_RULES.find((r) => r.name === '小红书');
+const x = SITE_RULES.find((r) => r.name === 'X（推特）');
 
 test('按 hostname 命中规则', () => {
 	assert.equal(ruleFor('https://mp.weixin.qq.com/s/abc')?.name, '微信公众号');
@@ -233,4 +237,223 @@ test('取不到时间就交给下一个来源，不返回瞎猜的值', () => {
 test('小红书正文排在图片前面', () => {
 	// 一条笔记最多九张图，图排前面要翻很久才看得到文案
 	assert.deepEqual(xhs.root, ['#detail-desc', '.media-container']);
+});
+
+test('按 hostname 命中推特，新旧域名都算', () => {
+	assert.equal(ruleFor('https://x.com/yyyole/status/2091554005772321204')?.name, 'X（推特）');
+	assert.equal(ruleFor('https://twitter.com/yyyole/status/2091554005772321204')?.name, 'X（推特）');
+	assert.equal(ruleFor('https://mobile.twitter.com/a/status/1')?.name, 'X（推特）');
+});
+
+test('推特图片换成大图', () => {
+	// 页面上给的是 small / medium，存进笔记的截图糊得看不清字
+	assert.equal(
+		upgradeTwimgImage('https://pbs.twimg.com/media/G8sXm3NWYAAVBAN?format=webp&name=small'),
+		'https://pbs.twimg.com/media/G8sXm3NWYAAVBAN?format=webp&name=large',
+	);
+	assert.equal(
+		upgradeTwimgImage('https://pbs.twimg.com/media/HQiQLKqaMAAo8Iz?format=jpg&name=medium'),
+		'https://pbs.twimg.com/media/HQiQLKqaMAAo8Iz?format=jpg&name=large',
+	);
+	// format 不动：webp 没有 orig 档，实测 name=orig 只有 jpg 给，webp 直接 404
+	assert.ok(
+		upgradeTwimgImage('https://pbs.twimg.com/media/x?format=webp&name=small').includes('format=webp'),
+	);
+});
+
+test('没有 name 参数的推特图片一律不碰', () => {
+	// 头像和视频封面的地址里没有尺寸参数，硬加会 404
+	const avatar = 'https://pbs.twimg.com/profile_images/1986002260447707136/lf3UN9Xp_normal.jpg';
+	assert.equal(upgradeTwimgImage(avatar), avatar);
+	const poster = 'https://pbs.twimg.com/amplify_video_thumb/2091553026377146369/img/704fGZAsnfpGrlW0.jpg';
+	assert.equal(upgradeTwimgImage(poster), poster);
+	// 别的站点的图，参数长得再像也不动
+	assert.equal(
+		upgradeTwimgImage('https://example.com/a.jpg?name=small'),
+		'https://example.com/a.jpg?name=small',
+	);
+	// 域名后缀要整段匹配
+	assert.equal(
+		upgradeTwimgImage('https://twimg.com.evil.com/media/a?name=small'),
+		'https://twimg.com.evil.com/media/a?name=small',
+	);
+	assert.equal(upgradeTwimgImage(null), '');
+	assert.equal(upgradeTwimgImage('不是个 URL'), '不是个 URL');
+});
+
+test('推特时间戳切掉中间点前面的时分，中英文都能落成日期', () => {
+	assert.equal(x.normalizePublished('23:51 · 2026年8月23日'), '2026年8月23日');
+	assert.equal(toDateString(x.normalizePublished('23:51 · 2026年8月23日')), '2026-08-23');
+	// 英文界面是另一种写法，切完 new Date() 吃得下
+	assert.equal(toDateString(x.normalizePublished('11:51 PM · Aug 23, 2026')), '2026-08-23');
+	// 老版页面的 <time datetime> 是 ISO 串，里面没有中间点，原样通过
+	assert.equal(
+		toDateString(x.normalizePublished('2026-08-23T15:51:48.000Z')),
+		toDateString('2026-08-23T15:51:48.000Z'),
+	);
+});
+
+test('推特两代前端的正文选择器要互斥', () => {
+	// 老版页面上 dir="auto" 满天飞（昵称、卡片标题都有），两条路一起收会带进一堆噪声
+	const roots = x.root;
+	const classic = roots.find((s) => s.startsWith('[data-testid="tweetText"]'));
+	const modern = roots.find((s) => s.startsWith('div[dir="auto"]'));
+	assert.ok(classic && modern, '两代前端各要有一条正文选择器');
+	assert.ok(
+		modern.includes(':not(article:has([data-testid="tweetText"]) *)'),
+		`${modern} 会在老版页面上跟着命中`,
+	);
+});
+
+test('推特正文只收主推的，引用推文单独成块', () => {
+	const roots = x.root;
+	// 引用推文是嵌在主推里的另一个 article，混进来会读成同一个人说的
+	for (const selector of roots.filter((s) => s !== 'article article')) {
+		assert.ok(selector.includes(':not(article article *)'), `${selector} 会把引用推文的内容混进主推`);
+	}
+	assert.ok(roots.includes('article article'), '引用推文要整块收，不能丢');
+	assert.deepEqual(x.blockquote, ['article'], '引用推文划成引用段');
+	assert.equal(x.videoPoster, true, '视频存不进笔记，留封面图');
+	assert.equal(x.titleFromBody, true, '推文没有标题，取正文开头');
+});
+
+/**
+ * 手搓一页推文。推特的规则只用这几样：querySelectorAll('article')、按选择器在一条推里
+ * 找昵称 / 时间 / 正文、closest('article')。这里按选择器里的特征串分发，够跑通判断逻辑；
+ * 选择器本身对不对是在真页面上用 tools/probe.mjs 验的，测试保不了那一层。
+ */
+function tweetPage(...specs) {
+	const doc = fakeDoc();
+	const articles = [];
+	const build = (spec, parent) => {
+		const node = { nodeName: 'ARTICLE', parentElement: parent, id: spec.id, quoted: null };
+		const link = (href, label) => {
+			const a = doc.adopt(el('a', { href }, [label]));
+			a.closest = () => node;
+			return a;
+		};
+		node.statusLink = link(`/u/status/${spec.id}`, spec.time ?? '');
+		node.nameLink = link('https://x.com/u', spec.name ?? '');
+		node.handleLink = link('https://x.com/u', `@${spec.id}`);
+		node.body = doc.adopt(el('div', { dir: 'auto' }, [spec.text ?? '']));
+		node.body.closest = () => node;
+		node.closest = (selector) => (selector === 'article' ? node : null);
+		if (spec.quotes) node.quoted = build({ id: spec.quotes }, node);
+
+		const linksIn = (a) => [a.statusLink, ...(a.quoted ? linksIn(a.quoted) : [])];
+		node.querySelectorAll = (selector) => {
+			// 判断顺序有讲究：时间和昵称那两条选择器里都带着 /status/（一个是取它，
+			// 一个是排除它），先判特征更强的
+			if (selector.includes('time[datetime]')) return [node.statusLink];
+			if (selector.includes('//x.com/')) return [node.nameLink, node.handleLink];
+			if (selector.includes('/status/')) {
+				const wanted = selector.match(/\/status\/(\d+)/)?.[1] ?? '';
+				return linksIn(node).filter((l) => l.getAttribute('href').includes(`/status/${wanted}`));
+			}
+			if (selector.includes('dir="auto"')) return [node.body];
+			return [];
+		};
+		articles.push(node);
+		return node;
+	};
+	for (const spec of specs) build(spec, null);
+	return Object.assign(doc, {
+		querySelectorAll: (selector) => (selector === 'article' ? articles : []),
+		// 只找页面上的顶层推文：引用推文是嵌在别人里面的另一个 article，id 会撞上
+		byId: (id) => articles.find((a) => a.id === id && !a.parentElement),
+	});
+}
+
+test('推文详情页上框出的是用户点开的那一条', () => {
+	// 主推 + 两条回复：正文只要主推的，回复不进笔记
+	const doc = tweetPage({ id: '111' }, { id: '222' }, { id: '333' });
+	assert.equal(x.scope(doc, 'https://x.com/u/status/111'), doc.byId('111'));
+	// 点开的是串里的第二条时，上文排在它前面，别框成上文
+	assert.equal(x.scope(doc, 'https://x.com/u/status/222'), doc.byId('222'));
+	// 配图页的 URL 多一段 /photo/1，推文 id 还是那个
+	assert.equal(x.scope(doc, 'https://x.com/u/status/111/photo/1'), doc.byId('111'));
+});
+
+test('别人引用了主推时，不能把那条引用当成主推', () => {
+	// 引用推文里也有一个指向主推的链接，按 closest 往上找会框到引用它的那条回复上
+	const doc = tweetPage({ id: '999', quotes: '111' }, { id: '111' });
+	assert.equal(x.scope(doc, 'https://x.com/u/status/111'), doc.byId('111'));
+});
+
+test('URL 里没有推文 id 就不框，退回整页', () => {
+	const doc = tweetPage({ id: '111' });
+	assert.equal(x.scope(doc, 'https://x.com/yyyole'), null);
+	assert.equal(x.scope(doc, 'https://x.com/i/bookmarks'), null);
+});
+
+/** 回复拼出来的块，按 markdown 之前的文字看。 */
+const replyText = (doc, url) => x.replies(doc, url).map((el) => el.textContent);
+
+test('一条回复拼成「昵称(时间): 正文」一行', () => {
+	// 整块收 article 的话昵称、@handle、时间、正文、阅读数各占一行，十几条读下来全是碎片
+	const doc = tweetPage(
+		{ id: '111', name: '沐阳', time: '8月23日', text: '主推' },
+		{ id: '222', name: '沐阳', time: '8月23日', text: '地址在这里' },
+		{ id: '333', name: 'Valir Masha', time: '8月24日', text: 'Open Source' },
+	);
+	assert.deepEqual(replyText(doc, 'https://x.com/u/status/111'), [
+		// 分隔线后面报一下底下这串是什么，分隔线本身是引擎加的
+		'comments:',
+		'沐阳(8月23日): 地址在这里',
+		'Valir Masha(8月24日): Open Source',
+	]);
+});
+
+test('推特的回复只取主推底下的那些', () => {
+	// 页面顺序：上文、主推、回复。主推之前的是上文，不是回复
+	const doc = tweetPage(
+		{ id: '111', name: 'A', time: 'Aug 23', text: '一' },
+		{ id: '222', name: 'B', time: 'Aug 24', text: '二' },
+		{ id: '333', name: 'C', time: 'Aug 24', text: '三' },
+	);
+	assert.deepEqual(replyText(doc, 'https://x.com/u/status/222'), ['comments:', 'C(Aug 24): 三']);
+	// 一条回复都没有时连抬头都不要，免得笔记末尾挂一句空的 comments:
+	assert.deepEqual(replyText(doc, 'https://x.com/u/status/333'), []);
+	// 框不出主推就一条都不给，别把整页的推当成回复
+	assert.deepEqual(replyText(doc, 'https://x.com/yyyole'), []);
+});
+
+test('推特的回复不越过对话容器', () => {
+	// 回复列表底下还接着「更多推荐」那种不相干的推
+	const doc = tweetPage(
+		{ id: '111', name: 'A', time: 'Aug 23', text: '一' },
+		{ id: '222', name: 'B', time: 'Aug 24', text: '二' },
+		{ id: '333', name: 'C', time: 'Aug 24', text: '三' },
+	);
+	const conversation = { contains: (el) => el !== doc.byId('333') };
+	for (const id of ['111', '222', '333']) {
+		const article = doc.byId(id);
+		article.closest = (selector) => (selector === 'article' ? article : conversation);
+	}
+	assert.deepEqual(replyText(doc, 'https://x.com/u/status/111'), ['comments:', 'B(Aug 24): 二']);
+});
+
+test('推特的引用推文不算回复', () => {
+	// 引用推文是嵌在主推里的另一个 article，正文那条路已经收了
+	const doc = tweetPage({ id: '111', name: 'A', time: 'Aug 23', text: '一', quotes: '999' });
+	assert.deepEqual(replyText(doc, 'https://x.com/u/status/111'), []);
+});
+
+test('推特要按地址给图片去重', () => {
+	// 视频封面在页面上有两份：占位 <img> 和 <video> 的 poster，两个选择器都留着
+	assert.equal(x.dedupeImages, true);
+});
+
+test('回复和正文用的是同一份选择器，别各写一份', () => {
+	// 回复就是另一条推，两边分头维护迟早对不上
+	const root = x.root.join(' ');
+	for (const selector of ['[data-testid="tweetText"]', 'div[dir="auto"]']) {
+		assert.ok(root.includes(selector), `正文选择器 ${selector} 没出现在 root 里`);
+	}
+	assert.ok(x.keepLineBreaks.includes('div[dir="auto"]'), '推文的换行要转成 <br>');
+	// 回复搬进合成行之后原来那个 div 就没了，按类名再点一次
+	assert.ok(
+		x.keepLineBreaks.some((s) => s.startsWith('.')),
+		'合成的回复行里也要保住换行',
+	);
 });

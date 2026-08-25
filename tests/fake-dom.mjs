@@ -9,17 +9,25 @@ export function text(value) {
 		textContent: String(value),
 		getAttribute: () => null,
 		replaceWith,
+		cloneNode: () => text(value),
 	};
 }
 
 export function el(name, attrs = {}, children = []) {
+	const own = { ...attrs };
 	const node = {
 		nodeType: 1,
 		nodeName: String(name).toUpperCase(),
 		childNodes: children.map((c) => (typeof c === 'string' ? text(c) : c)),
-		getAttribute: (key) => (key in attrs ? String(attrs[key]) : null),
+		getAttribute: (key) => (key in own ? String(own[key]) : null),
+		setAttribute: (key, value) => {
+			own[key] = String(value);
+		},
 		replaceWith,
 		appendChild,
+		// 站点规则会把页面上的节点搬进自己拼的块里（推特的回复），搬的是副本
+		cloneNode: (deep = false) =>
+			el(name, own, deep ? node.childNodes.map((c) => c.cloneNode(true)) : []),
 	};
 	Object.defineProperty(node, 'textContent', {
 		get: () => node.childNodes.map((c) => c.textContent).join(''),
