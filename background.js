@@ -106,12 +106,12 @@ async function flashBadge(ok) {
  * 所以 lib 的地址要通过 args 传进去，而且 DOM 节点不能跨边界返回 ——
  * markdown 必须在页面内就转好。
  */
-async function collectArticle(tabId, { withReplies = false } = {}) {
+async function collectArticle(tabId, { withReplies = false, plainText = false } = {}) {
 	const libBase = chrome.runtime.getURL('lib/');
 	const [injected] = await chrome.scripting.executeScript({
 		target: { tabId },
-		args: [libBase, withReplies],
-		func: async (base, replies) => {
+		args: [libBase, withReplies, plainText],
+		func: async (base, replies, plain) => {
 			const { extractArticle } = await import(`${base}extract.js`);
 			const { htmlToMarkdown } = await import(`${base}html2md.js`);
 			const article = extractArticle(document, location.href, { withReplies: replies });
@@ -121,7 +121,7 @@ async function collectArticle(tabId, { withReplies = false } = {}) {
 				author: article.author,
 				publishedAt: article.publishedAt,
 				siteName: article.siteName,
-				markdown: htmlToMarkdown(article.root),
+				markdown: htmlToMarkdown(article.root, { plain }),
 			};
 		},
 	});
@@ -228,8 +228,9 @@ async function mirrorImages(markdown, oss, pageUrl) {
 /**
  * withReplies 默认开：只有推特这类规则写了 replies 的站点认这个开关，别的站点无所谓；
  * 右键菜单没有勾选框，走的就是这个默认值。
+ * plainText 默认关：移除格式是「这一篇的排版是坏的」的临时判断，右键菜单走正常版式。
  */
-export async function clip({ tabId, tags, skipImages = false, withReplies = true } = {}) {
+export async function clip({ tabId, tags, skipImages = false, withReplies = true, plainText = false } = {}) {
 	try {
 		const auth = await loadAuth();
 		if (!auth) {
@@ -238,7 +239,7 @@ export async function clip({ tabId, tags, skipImages = false, withReplies = true
 		}
 
 		const settings = await loadSettings();
-		const article = await collectArticle(tabId, { withReplies });
+		const article = await collectArticle(tabId, { withReplies, plainText });
 
 		// 勾了「不保存图片」就在这里把图删干净，后面图床那一整段自然不用跑
 		const stripped = skipImages

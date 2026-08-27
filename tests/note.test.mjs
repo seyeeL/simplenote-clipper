@@ -172,6 +172,9 @@ test('去重比较忽略空白差异，但不做模糊匹配', () => {
 	assert.equal(stripDuplicateHeading('# 标题前缀更长一些\n\n正文', '标题前缀'), '# 标题前缀更长一些\n\n正文');
 	assert.equal(stripDuplicateHeading('正文没有 heading', '标题'), '正文没有 heading');
 	assert.equal(stripDuplicateHeading('# 标题', ''), '# 标题');
+	// 勾了「移除 Markdown 格式」之后那一行没有井号，一字不差同样要去掉
+	assert.equal(stripDuplicateHeading('标题\n\n正文', '标题'), '正文');
+	assert.equal(stripDuplicateHeading('标题只差一个字\n\n正文', '标题'), '标题只差一个字\n\n正文');
 });
 
 test('整篇的最终形状', () => {

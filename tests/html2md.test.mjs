@@ -158,3 +158,48 @@ test('单个 <br> 仍然是 markdown 硬换行', () => {
 	const root = el('div', {}, ['上行', el('br'), '下行']);
 	assert.equal(htmlToMarkdown(root), '上行  \n下行');
 });
+
+test('plain：标记全不写，链接只留文字', () => {
+	const root = el('div', {}, [
+		el('h2', {}, ['小节标题']),
+		el('p', {}, ['前', el('strong', {}, ['粗']), el('em', {}, ['斜']), el('del', {}, ['删']), '后']),
+		el('p', {}, [el('a', { href: 'https://example.com/a' }, ['链接文字'])]),
+		el('p', {}, [el('code', {}, ['npm test'])]),
+		el('hr'),
+		el('blockquote', {}, [el('p', {}, ['引用的一段'])]),
+		el('figure', {}, [el('figcaption', {}, ['图注'])]),
+	]);
+	assert.equal(
+		htmlToMarkdown(root, { plain: true }),
+		'小节标题\n\n前粗斜删后\n\n链接文字\n\nnpm test\n\n引用的一段\n\n图注',
+	);
+});
+
+test('plain：图片照留，代码块只去围栏不动换行', () => {
+	const root = el('div', {}, [
+		el('p', {}, [el('img', { src: 'https://cdn/x.jpg', alt: '图 说' })]),
+		el('pre', { class: 'language-js' }, ['a()\nb()']),
+	]);
+	assert.equal(htmlToMarkdown(root, { plain: true }), '![图 说](https://cdn/x.jpg)\n\na()\nb()');
+});
+
+test('plain：列表和表格照旧 —— 去掉标记它们就散成一坨字', () => {
+	const root = el('div', {}, [
+		el('ul', {}, [el('li', {}, ['甲']), el('li', {}, ['乙'])]),
+		el('table', {}, [el('tr', {}, [el('th', {}, ['列'])]), el('tr', {}, [el('td', {}, ['值'])])]),
+	]);
+	assert.equal(
+		htmlToMarkdown(root, { plain: true }),
+		'- 甲\n- 乙\n\n| 列 |\n| --- |\n| 值 |',
+	);
+});
+
+// 公众号编辑器的真实产物：整篇正文塞在一个 <h1> 里。按标题渲染会走 inline()，
+// 把段落之间的换行全压掉，整篇挤成一行 —— 这个开关就是为它加的
+test('plain：整篇塞在 h1 里时段落不会被压成一行', () => {
+	const root = el('div', {}, [
+		el('h1', {}, [el('p', {}, ['第一段']), el('p', {}, ['第二段'])]),
+	]);
+	assert.equal(htmlToMarkdown(root), '# 第一段 第二段');
+	assert.equal(htmlToMarkdown(root, { plain: true }), '第一段\n\n第二段');
+});
