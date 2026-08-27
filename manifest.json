@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Simplenote 剪藏",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "提取网页正文转成 Markdown，一键存进 Simplenote",
   "permissions": [
     "storage",
