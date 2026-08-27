@@ -43,12 +43,13 @@ async function init() {
 
 		const result = await chrome.runtime.sendMessage({
 			type: 'clip',
-			// 每次打开都是不勾的状态：跳过图片是「这一篇不要图」的临时决定，
-			// 记住上次的选择反而会让人不知不觉丢掉后面几篇的配图
+			// 这两个勾选框每次打开都是不勾的状态：跳过图片、移除格式都是「这一篇」
+			// 的临时决定，记住上次的选择反而会让人不知不觉丢掉后面几篇的配图和版式
 			payload: {
 				tabId: tab.id,
 				tags: $('tags').value,
 				skipImages: $('skip-images').checked,
+				plainText: $('plain-text').checked,
 				withReplies: withReplies && $('with-replies').checked,
 			},
 		});
