@@ -74,6 +74,16 @@ test('引用块每行加 >，空行只留 >', () => {
 	assert.equal(htmlToMarkdown(root), '> 第一段\n>\n> 第二段');
 });
 
+test('嵌套的引用段前面不留空行', () => {
+	// 推特的评论一条一段引用，楼中楼再套一层：中间留空行的话那一行只剩孤零零一个 >，
+	// 一条带回复的评论要占五行
+	const root = el('blockquote', {}, [
+		el('p', {}, ['评论']),
+		el('blockquote', {}, [el('p', {}, ['楼主的回复'])]),
+	]);
+	assert.equal(htmlToMarkdown(root), '> 评论\n> > 楼主的回复');
+});
+
 test('表格转成管道表，单元格里的竖线转义', () => {
 	const root = el('table', {}, [
 		el('tbody', {}, [
