@@ -5,6 +5,7 @@ import {
 	dropNested,
 	keepGuard,
 	keepLineBreaks,
+	quoteBlocks,
 	shouldDropByClass,
 	stripSiteSuffix,
 	stripText,
@@ -242,4 +243,48 @@ test('没点名的选择器不动', () => {
 	keepLineBreaks(box, ['#other']);
 	keepLineBreaks(box, []);
 	assert.deepEqual(box.childNodes.map((n) => n.textContent), ['第一段\n第二段']);
+});
+
+/** quoteBlocks 要 matches / querySelectorAll / replaceWith，最小 stub 一个。 */
+function quoteBox(inner) {
+	const doc = fakeDoc();
+	const root = doc.adopt(el('div', {}, [inner]));
+	root.matches = () => false;
+	root.querySelectorAll = (selector) => (selector === 'article' ? [inner] : []);
+	inner.matches = (selector) => selector === 'article';
+	inner.querySelectorAll = () => [];
+	return { doc, root };
+}
+
+test('quoteBlocks 把点名的块套成引用段', () => {
+	const inner = el('article', {}, ['引用的那条推']);
+	const { root } = quoteBox(inner);
+	quoteBlocks(root, ['article']);
+	assert.equal(root.childNodes[0].nodeName, 'BLOCKQUOTE');
+	assert.equal(root.textContent, '引用的那条推');
+});
+
+test('规则给了 format 就用重排后的节点顶替原块', () => {
+	// 推特的引用推文整块收进来是一堆碎行（昵称、@handle、时间各占一行），
+	// 规则自己拼成「抬头 + 正文」再套引用段
+	const inner = el('article', {}, ['昵称', '@handle', '8月2日', '正文']);
+	const { doc, root } = quoteBox(inner);
+	quoteBlocks(root, ['article'], (d, el_) => {
+		assert.equal(el_, inner, 'format 拿到的是被点名的那个块');
+		return [d.createElement('p')].map((p) => {
+			p.appendChild(doc.createTextNode('重排过了'));
+			return p;
+		});
+	});
+	assert.equal(root.textContent, '重排过了');
+});
+
+test('format 返回空或者报错，还照原样收', () => {
+	// 重排失败把整块内容弄丢的话，剪出来的笔记会少一条推
+	for (const format of [() => [], () => null, () => { throw new Error('boom'); }]) {
+		const inner = el('article', {}, ['引用的那条推']);
+		const { root } = quoteBox(inner);
+		quoteBlocks(root, ['article'], format);
+		assert.equal(root.textContent, '引用的那条推');
+	}
 });

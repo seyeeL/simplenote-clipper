@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SITE_RULES, ruleFor, upgradeSinaImage, upgradeTwimgImage } from '../lib/site-rules.js';
+import {
+	SITE_RULES,
+	ruleFor,
+	timeFromStatusId,
+	upgradeSinaImage,
+	upgradeTwimgImage,
+} from '../lib/site-rules.js';
+// 回复那一段的版式是最终落进笔记的样子，直接按 markdown 断言
+import { htmlToMarkdown } from '../lib/html2md.js';
 // 推特页面上的时间戳最后要落成笔记里的日期，这一段是跨模块的约定，一起测
 import { toDateString } from '../lib/note.js';
 import { el, fakeDoc } from './fake-dom.mjs';
@@ -325,6 +333,10 @@ test('推特正文只收主推的，引用推文单独成块', () => {
 function tweetPage(...specs) {
 	const doc = fakeDoc();
 	const articles = [];
+	// 老版 React 那套 cell 列表：spec 写了 cell 就给这条推配一个，写 gap 就插一个空 cell
+	const cells = [];
+	// 新版 SSR 的对话 li：同一个 li 里的几条是一串
+	const groups = new Map();
 	const build = (spec, parent) => {
 		const node = { nodeName: 'ARTICLE', parentElement: parent, id: spec.id, quoted: null };
 		const link = (href, label) => {
@@ -332,19 +344,41 @@ function tweetPage(...specs) {
 			a.closest = () => node;
 			return a;
 		};
-		node.statusLink = link(`/u/status/${spec.id}`, spec.time ?? '');
+		node.statusLink = link(`/${spec.handle ?? 'u'}/status/${spec.id}`, spec.time ?? '');
 		node.nameLink = link('https://x.com/u', spec.name ?? '');
-		node.handleLink = link('https://x.com/u', `@${spec.id}`);
+		node.handleLink = link('https://x.com/u', `@${spec.handle ?? spec.id}`);
+		// 老版页面才有 <time datetime>，新版只能从推文 id 里算日期
+		node.timeEl = spec.iso ? doc.adopt(el('time', { datetime: spec.iso }, [spec.time ?? ''])) : null;
+		if (node.timeEl) node.timeEl.closest = () => node;
 		node.body = doc.adopt(el('div', { dir: 'auto' }, [spec.text ?? '']));
 		node.body.closest = () => node;
-		node.closest = (selector) => (selector === 'article' ? node : null);
-		if (spec.quotes) node.quoted = build({ id: spec.quotes }, node);
+		if (spec.li && !groups.has(spec.li)) groups.set(spec.li, { nodeName: 'LI' });
+		node.closest = (selector) => {
+			if (selector === 'article') return node;
+			if (selector === 'li') return groups.get(spec.li) ?? null;
+			return null;
+		};
+		if (spec.cell) {
+			cells.push({
+				getAttribute: (key) => (key === 'data-testid' ? 'cellInnerDiv' : null),
+				querySelector: (s) => (s === 'article' ? node : null),
+				contains: (el) => el === node,
+			});
+		}
+		if (spec.quotes) {
+			node.quoted = build(
+				typeof spec.quotes === 'object' ? spec.quotes : { id: spec.quotes },
+				node,
+			);
+		}
 
 		const linksIn = (a) => [a.statusLink, ...(a.quoted ? linksIn(a.quoted) : [])];
 		node.querySelectorAll = (selector) => {
 			// 判断顺序有讲究：时间和昵称那两条选择器里都带着 /status/（一个是取它，
 			// 一个是排除它），先判特征更强的
-			if (selector.includes('time[datetime]')) return [node.statusLink];
+			if (selector.includes('time[datetime]')) {
+				return node.timeEl ? [node.timeEl, node.statusLink] : [node.statusLink];
+			}
 			if (selector.includes('//x.com/')) return [node.nameLink, node.handleLink];
 			if (selector.includes('/status/')) {
 				const wanted = selector.match(/\/status\/(\d+)/)?.[1] ?? '';
@@ -356,9 +390,27 @@ function tweetPage(...specs) {
 		articles.push(node);
 		return node;
 	};
-	for (const spec of specs) build(spec, null);
+	for (const spec of specs) {
+		// 两条串之间那个不含推文的 cell：老版页面靠它把一串和下一串分开
+		if (spec.gap) {
+			cells.push({
+				getAttribute: (key) => (key === 'data-testid' ? 'cellInnerDiv' : null),
+				querySelector: () => null,
+				contains: () => false,
+			});
+		} else if (spec.boundary) {
+			// 「更多推荐」那一段的抬头：cell 之后出现的 section / h2 就是对话的尽头
+			cells.push({ getAttribute: () => null, closest: () => null, contains: () => false });
+		} else {
+			build(spec, null);
+		}
+	}
 	return Object.assign(doc, {
-		querySelectorAll: (selector) => (selector === 'article' ? articles : []),
+		querySelectorAll: (selector) => {
+			if (selector === 'article') return articles;
+			if (selector.includes('cellInnerDiv')) return cells;
+			return [];
+		},
 		// 只找页面上的顶层推文：引用推文是嵌在别人里面的另一个 article，id 会撞上
 		byId: (id) => articles.find((a) => a.id === id && !a.parentElement),
 	});
@@ -386,57 +438,201 @@ test('URL 里没有推文 id 就不框，退回整页', () => {
 	assert.equal(x.scope(doc, 'https://x.com/i/bookmarks'), null);
 });
 
-/** 回复拼出来的块，按 markdown 之前的文字看。 */
-const replyText = (doc, url) => x.replies(doc, url).map((el) => el.textContent);
+/** 回复那一段最后落到笔记里的样子。 */
+const replyMd = (doc, url) => {
+	const wrap = doc.createElement('div');
+	for (const block of x.replies(doc, url)) wrap.appendChild(block);
+	return htmlToMarkdown(wrap);
+};
 
-test('一条回复拼成「昵称(时间): 正文」一行', () => {
-	// 整块收 article 的话昵称、@handle、时间、正文、阅读数各占一行，十几条读下来全是碎片
+/** 带 > 前缀的抬头行：一眼看出有几条、谁在谁下面。 */
+const replyLines = (doc, url) =>
+	replyMd(doc, url)
+		.split('\n')
+		.filter((line) => line.includes('**'));
+
+/**
+ * 日期按本机时区算（和页面上显示的那个对得上），测试里不能写死一个字面量，
+ * 否则换个时区跑就红。
+ */
+const localDay = (iso) => {
+	const d = new Date(iso);
+	const pad = (n) => String(n).padStart(2, '0');
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+test('一条回复套成一段引用，抬头是「昵称 @handle · 日期」', () => {
+	// 整块收 article 的话昵称、@handle、时间、正文、阅读数各占一行，十几条读下来全是碎片。
+	// 版式对齐 Obsidian 官方剪藏器（defuddle）：引用段 + 加粗抬头 + 日期链回原推
+	const iso = '2026-08-23T04:00:00.000Z';
 	const doc = tweetPage(
-		{ id: '111', name: '沐阳', time: '8月23日', text: '主推' },
-		{ id: '222', name: '沐阳', time: '8月23日', text: '地址在这里' },
-		{ id: '333', name: 'Valir Masha', time: '8月24日', text: 'Open Source' },
+		{ id: '111', name: '沐阳', handle: 'muyang', iso, text: '主推' },
+		{ id: '222', name: '沐阳', handle: 'muyang', iso, text: '地址在这里' },
+		{ id: '333', name: 'Valir Masha', handle: 'valir', iso, text: 'Open Source' },
 	);
-	assert.deepEqual(replyText(doc, 'https://x.com/u/status/111'), [
-		// 分隔线后面报一下底下这串是什么，分隔线本身是引擎加的
-		'comments:',
-		'沐阳(8月23日): 地址在这里',
-		'Valir Masha(8月24日): Open Source',
+	const day = localDay(iso);
+	assert.equal(
+		replyMd(doc, 'https://x.com/muyang/status/111'),
+		[
+			'## Comments',
+			'',
+			`> **沐阳 @muyang** · [${day}](https://x.com/muyang/status/222)  `,
+			'> 地址在这里',
+			'',
+			`> **Valir Masha @valir** · [${day}](https://x.com/valir/status/333)  `,
+			'> Open Source',
+		].join('\n'),
+	);
+});
+
+test('页面上没有 <time> 时，日期从推文 id 里算', () => {
+	// 新版页面的时间戳只有「8月7日」，没有年份；再往前的显示成「8h」。推文 id 是
+	// snowflake，高位就是发布时间，算出来和页面上显示的那天对得上
+	assert.equal(timeFromStatusId('2085627066423406716'), Date.parse('2026-08-07T07:20:16.369Z'));
+	assert.equal(timeFromStatusId('2002724036355240392'), Date.parse('2025-12-21T12:53:13.737Z'));
+	// 不是推文 id 的（老页面的相对时间、空串）不能瞎算
+	assert.equal(timeFromStatusId('8h'), 0);
+	assert.equal(timeFromStatusId(''), 0);
+
+	const doc = tweetPage(
+		{ id: '111', name: 'A', handle: 'a', text: '主推' },
+		{ id: '2085627066423406716', name: 'B', handle: 'b', time: '8月7日', text: '二' },
+	);
+	const day = localDay('2026-08-07T07:20:16.369Z');
+	assert.deepEqual(replyLines(doc, 'https://x.com/a/status/111'), [
+		`> **B @b** · [${day}](https://x.com/b/status/2085627066423406716)  `,
 	]);
+});
+
+test('回复某条评论的那条，套进那条评论的引用段里', () => {
+	// 新版页面：一串对话包在同一个 <li> 里，第一条是顶层评论，后面几条接着它
+	const doc = tweetPage(
+		{ id: '111', name: 'A', handle: 'a', text: '主推' },
+		{ id: '222', name: 'B', handle: 'b', text: '二', li: 'g1' },
+		{ id: '333', name: 'A', handle: 'a', text: '回二', li: 'g1' },
+		{ id: '444', name: 'C', handle: 'c', text: '四', li: 'g2' },
+	);
+	assert.deepEqual(
+		replyLines(doc, 'https://x.com/a/status/111').map((line) => line.replace(/ · .*$/, '')),
+		['> **B @b**', '> > **A @a**', '> **C @c**'],
+	);
+});
+
+test('老版页面的层级看 cell 挨不挨着', () => {
+	// 老版 React：每条推一个 cellInnerDiv，同一串的几条连着排，串与串之间夹一个空 cell
+	const doc = tweetPage(
+		{ id: '111', name: 'A', handle: 'a', text: '主推', cell: true },
+		{ gap: true },
+		{ id: '222', name: 'B', handle: 'b', text: '二', cell: true },
+		{ id: '333', name: 'A', handle: 'a', text: '回二', cell: true },
+		{ gap: true },
+		{ id: '444', name: 'C', handle: 'c', text: '四', cell: true },
+	);
+	assert.deepEqual(
+		replyLines(doc, 'https://x.com/a/status/111').map((line) => line.replace(/ · .*$/, '')),
+		['> **B @b**', '> > **A @a**', '> **C @c**'],
+	);
+});
+
+test('作者自己接着发的那串按平级排，不往里嵌', () => {
+	// 串在页面结构上是一条条首尾相接的回复，照结构算会一条比一条深一层：
+	// 实测沐阳那条电商图的推有八条串，套到第八层根本没法读
+	const doc = tweetPage(
+		{ id: '111', name: '沐阳', handle: 'yyyole', text: '主推', li: 'g1' },
+		{ id: '222', name: '沐阳', handle: 'yyyole', text: '00、LOGO 生成', li: 'g1' },
+		{ id: '333', name: '沐阳', handle: 'yyyole', text: '02、产品场景', li: 'g1' },
+		// 别人的评论一出现，串就结束了：作者后面回评论区的那条算普通回复，该嵌还是嵌
+		{ id: '444', name: '路人', handle: 'passerby', text: '好用', li: 'g2' },
+		{ id: '555', name: '沐阳', handle: 'yyyole', text: '谢谢', li: 'g2' },
+	);
+	assert.deepEqual(
+		replyLines(doc, 'https://x.com/yyyole/status/111').map((line) => line.replace(/ · .*$/, '')),
+		['> **沐阳 @yyyole**', '> **沐阳 @yyyole**', '> **路人 @passerby**', '> > **沐阳 @yyyole**'],
+	);
 });
 
 test('推特的回复只取主推底下的那些', () => {
 	// 页面顺序：上文、主推、回复。主推之前的是上文，不是回复
 	const doc = tweetPage(
-		{ id: '111', name: 'A', time: 'Aug 23', text: '一' },
-		{ id: '222', name: 'B', time: 'Aug 24', text: '二' },
-		{ id: '333', name: 'C', time: 'Aug 24', text: '三' },
+		{ id: '111', name: 'A', handle: 'a', text: '一' },
+		{ id: '222', name: 'B', handle: 'b', text: '二' },
+		{ id: '333', name: 'C', handle: 'c', text: '三' },
 	);
-	assert.deepEqual(replyText(doc, 'https://x.com/u/status/222'), ['comments:', 'C(Aug 24): 三']);
-	// 一条回复都没有时连抬头都不要，免得笔记末尾挂一句空的 comments:
-	assert.deepEqual(replyText(doc, 'https://x.com/u/status/333'), []);
+	assert.deepEqual(
+		replyLines(doc, 'https://x.com/b/status/222').map((line) => line.replace(/ · .*$/, '')),
+		['> **C @c**'],
+	);
+	// 一条回复都没有时连抬头都不要，免得笔记末尾挂一个空的 ## Comments
+	assert.equal(replyMd(doc, 'https://x.com/c/status/333'), '');
 	// 框不出主推就一条都不给，别把整页的推当成回复
-	assert.deepEqual(replyText(doc, 'https://x.com/yyyole'), []);
+	assert.equal(replyMd(doc, 'https://x.com/yyyole'), '');
+});
+
+test('老版页面收到「更多推荐」为止', () => {
+	// 回复列表底下接着的推荐推也是一排 cell，混进来就成了别人的评论
+	const doc = tweetPage(
+		{ id: '111', name: 'A', handle: 'a', text: '主推', cell: true },
+		{ gap: true },
+		{ id: '222', name: 'B', handle: 'b', text: '二', cell: true },
+		{ boundary: true },
+		{ id: '333', name: 'C', handle: 'c', text: '更多推荐里的推', cell: true },
+	);
+	assert.deepEqual(
+		replyLines(doc, 'https://x.com/a/status/111').map((line) => line.replace(/ · .*$/, '')),
+		['> **B @b**'],
+	);
 });
 
 test('推特的回复不越过对话容器', () => {
 	// 回复列表底下还接着「更多推荐」那种不相干的推
 	const doc = tweetPage(
-		{ id: '111', name: 'A', time: 'Aug 23', text: '一' },
-		{ id: '222', name: 'B', time: 'Aug 24', text: '二' },
-		{ id: '333', name: 'C', time: 'Aug 24', text: '三' },
+		{ id: '111', name: 'A', handle: 'a', text: '一' },
+		{ id: '222', name: 'B', handle: 'b', text: '二' },
+		{ id: '333', name: 'C', handle: 'c', text: '三' },
 	);
 	const conversation = { contains: (el) => el !== doc.byId('333') };
 	for (const id of ['111', '222', '333']) {
 		const article = doc.byId(id);
 		article.closest = (selector) => (selector === 'article' ? article : conversation);
 	}
-	assert.deepEqual(replyText(doc, 'https://x.com/u/status/111'), ['comments:', 'B(Aug 24): 二']);
+	assert.deepEqual(
+		replyLines(doc, 'https://x.com/a/status/111').map((line) => line.replace(/ · .*$/, '')),
+		['> **B @b**'],
+	);
+});
+
+test('引用推文重排成和评论一样的抬头', () => {
+	// 整块收进来是一堆碎行：昵称、@handle、时间各占一行，正文再接在后面，
+	// 和评论那边两种版式
+	const doc = tweetPage({
+		id: '111',
+		name: '沐阳',
+		handle: 'yyyole',
+		text: '主推',
+		quotes: {
+			id: '2083808480146997250',
+			name: '蜘蛛侠 | 1000X GEM',
+			handle: 'zhizhuxia22',
+			time: '8月2日',
+			text: '整理了一份无需KYC的Visa卡清单',
+		},
+	});
+	const wrap = doc.createElement('div');
+	for (const part of x.formatQuote(doc, doc.byId('111').quoted)) wrap.appendChild(part);
+	const day = localDay(new Date(timeFromStatusId('2083808480146997250')).toISOString());
+	assert.equal(
+		htmlToMarkdown(wrap),
+		[
+			`**蜘蛛侠 | 1000X GEM @zhizhuxia22** · [${day}](https://x.com/zhizhuxia22/status/2083808480146997250)  `,
+			'整理了一份无需KYC的Visa卡清单',
+		].join('\n'),
+	);
 });
 
 test('推特的引用推文不算回复', () => {
 	// 引用推文是嵌在主推里的另一个 article，正文那条路已经收了
-	const doc = tweetPage({ id: '111', name: 'A', time: 'Aug 23', text: '一', quotes: '999' });
-	assert.deepEqual(replyText(doc, 'https://x.com/u/status/111'), []);
+	const doc = tweetPage({ id: '111', name: 'A', handle: 'a', text: '一', quotes: '999' });
+	assert.equal(replyMd(doc, 'https://x.com/a/status/111'), '');
 });
 
 test('推特要按地址给图片去重', () => {
