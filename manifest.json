@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Simplenote 剪藏",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "提取网页正文转成 Markdown，一键存进 Simplenote",
   "permissions": [
     "storage",
@@ -26,6 +26,12 @@
       "16": "icons/16.png",
       "48": "icons/48.png",
       "128": "icons/128.png"
+    }
+  },
+  "commands": {
+    "upload-clipboard-image": {
+      "suggested_key": "Alt+2",
+      "description": "上传剪贴板图片并复制 Markdown 链接"
     }
   },
   "options_page": "options.html",
