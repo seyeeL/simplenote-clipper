@@ -14,6 +14,23 @@ async function currentTab() {
 	return tab ?? null;
 }
 
+/**
+ * service worker 空闲会被 Chrome 回收，唤醒它和把消息投递进去之间有竞态：
+ * 偶尔 sendMessage 会直接以「Could not establish connection」拒绝，消息根本没送到。
+ * 不接住的话按钮永远停在 disabled、状态永远停在「提取正文中…」，看着就像点了没反应。
+ */
+async function sendClip(payload) {
+	const message = { type: 'clip', payload };
+	try {
+		return await chrome.runtime.sendMessage(message);
+	} catch (err) {
+		// 只在「压根没送到」这一种错误上重发。别的错误说不定消息已经进去了，
+		// 重发会存出两条一模一样的笔记
+		if (!/Could not establish connection|Receiving end does not exist/i.test(String(err?.message ?? err))) throw err;
+		return chrome.runtime.sendMessage(message);
+	}
+}
+
 async function init() {
 	const tab = await currentTab();
 	$('page-title').textContent = tab?.title || tab?.url || '（读不到当前页）';
@@ -41,20 +58,24 @@ async function init() {
 		$('clip').disabled = true;
 		setStatus('提取正文中…');
 
-		const result = await chrome.runtime.sendMessage({
-			type: 'clip',
-			// 这两个勾选框每次打开都是不勾的状态：跳过图片、移除格式都是「这一篇」
-			// 的临时决定，记住上次的选择反而会让人不知不觉丢掉后面几篇的配图和版式
-			payload: {
+		let result;
+		try {
+			result = await sendClip({
+				// 这两个勾选框每次打开都是不勾的状态：跳过图片、移除格式都是「这一篇」
+				// 的临时决定，记住上次的选择反而会让人不知不觉丢掉后面几篇的配图和版式
 				tabId: tab.id,
 				tags: $('tags').value,
 				skipImages: $('skip-images').checked,
 				plainText: $('plain-text').checked,
 				withReplies: withReplies && $('with-replies').checked,
-			},
-		});
+			});
+		} catch (err) {
+			setStatus(`联系不上后台：${err?.message ?? err}`, 'err');
+			return;
+		} finally {
+			$('clip').disabled = false;
+		}
 
-		$('clip').disabled = false;
 		if (result?.ok) {
 			const parts = [`已存入 Simplenote（${result.chars} 字符）`];
 			if (result.images?.stripped) parts.push(`去掉 ${result.images.stripped} 张图`);
