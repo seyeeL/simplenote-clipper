@@ -16,7 +16,10 @@ import { ruleFor } from './lib/site-rules.js';
 import { createNote, SimperiumError } from './lib/simperium.js';
 import { loadAuth, loadSettings, saveImageReport } from './storage.js';
 
-const MENU_ID = 'clip-to-simplenote';
+const CLIP_MENU_ID = 'clip-to-simplenote';
+const UPLOAD_CLIPBOARD_IMAGE_MENU_ID = 'upload-clipboard-image';
+const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
+const DEFAULT_ACTION_TITLE = '剪藏到 Simplenote';
 const BADGE_MS = 4000;
 
 // 单张图上限。超过基本是原图大图，转存意义不大，还拖慢剪藏
@@ -25,23 +28,59 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const UPLOAD_CONCURRENCY = 4;
 // 抓任意站点的图需要的权限，勾选启用图床时才向用户申请
 const IMAGE_ORIGINS = { origins: ['<all_urls>'] };
+const CLIPBOARD_PERMISSIONS = { permissions: ['clipboardRead', 'clipboardWrite'] };
 // 失败详情留几条给设置页看。同一篇文章的失败原因通常一样，不用全存
 const MAX_KEPT_ERRORS = 5;
 // 补 Referer 用的会话规则从这个 id 开始。会话规则不落盘，浏览器一关就没了
 const REFERER_RULE_ID = 1;
 
+let creatingOffscreenDocument;
+let clipboardUploadTask;
+
 chrome.runtime.onInstalled.addListener(() => {
-	chrome.contextMenus.create({
-		id: MENU_ID,
-		title: '剪藏到 Simplenote',
-		contexts: ['page', 'selection', 'link'],
+	// 更新扩展时旧菜单可能仍然存在。先清空再创建，确保注册过程可重复执行。
+	chrome.contextMenus.removeAll(() => {
+		if (chrome.runtime.lastError) {
+			console.error('重置右键菜单失败：', chrome.runtime.lastError.message);
+			return;
+		}
+		chrome.contextMenus.create(
+			{
+				id: CLIP_MENU_ID,
+				title: '剪藏到 Simplenote',
+				contexts: ['page', 'selection', 'link'],
+			},
+			() => {
+				// 读取 lastError，避免 Chrome 把可诊断错误记成 Unchecked runtime.lastError。
+				if (chrome.runtime.lastError) {
+					console.error('创建网页右键菜单失败：', chrome.runtime.lastError.message);
+				}
+			},
+		);
+		chrome.contextMenus.create(
+			{
+				id: UPLOAD_CLIPBOARD_IMAGE_MENU_ID,
+				title: '上传剪贴板图片并复制 Markdown 链接',
+				contexts: ['action'],
+			},
+			() => {
+				if (chrome.runtime.lastError) {
+					console.error('创建图标右键菜单失败：', chrome.runtime.lastError.message);
+				}
+			},
+		);
 	});
 });
 
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-	if (info.menuItemId !== MENU_ID || !tab?.id) return;
-	const settings = await loadSettings();
-	await clip({ tabId: tab.id, tags: settings.defaultTags });
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+	if (info.menuItemId === UPLOAD_CLIPBOARD_IMAGE_MENU_ID) {
+		// permissions.request 必须直接由用户手势触发；不要放到读配置等异步步骤之后。
+		const permissionRequest = chrome.permissions.request(CLIPBOARD_PERMISSIONS);
+		void uploadClipboardImageFromMenu(permissionRequest);
+		return;
+	}
+	if (info.menuItemId !== CLIP_MENU_ID || !tab?.id) return;
+	void loadSettings().then((settings) => clip({ tabId: tab.id, tags: settings.defaultTags }));
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -95,10 +134,87 @@ function signatureVerdict(err) {
 		: `\n\n签名格式对不上，这是扩展的 bug。\nOSS 算的：${JSON.stringify(remote)}\n本地拼的：${JSON.stringify(local)}`;
 }
 
-async function flashBadge(ok) {
-	await chrome.action.setBadgeBackgroundColor({ color: ok ? '#2E7D32' : '#C62828' });
-	await chrome.action.setBadgeText({ text: ok ? '✓' : '!' });
-	setTimeout(() => chrome.action.setBadgeText({ text: '' }), BADGE_MS);
+async function flashBadge(ok, message = '') {
+	const actions = [
+		chrome.action.setBadgeBackgroundColor({ color: ok ? '#2E7D32' : '#C62828' }),
+		chrome.action.setBadgeText({ text: ok ? '✓' : '!' }),
+	];
+	if (message) actions.push(chrome.action.setTitle({ title: String(message).slice(0, 200) }));
+	await Promise.all(actions);
+	setTimeout(() => {
+		void chrome.action.setBadgeText({ text: '' });
+		if (message) void chrome.action.setTitle({ title: DEFAULT_ACTION_TITLE });
+	}, BADGE_MS);
+}
+
+async function ensureOffscreenDocument() {
+	const documentUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
+	let exists;
+	if ('getContexts' in chrome.runtime) {
+		const contexts = await chrome.runtime.getContexts({
+			contextTypes: ['OFFSCREEN_DOCUMENT'],
+			documentUrls: [documentUrl],
+		});
+		exists = contexts.length > 0;
+	} else {
+		const matchedClients = await clients.matchAll();
+		exists = matchedClients.some((client) => client.url === documentUrl);
+	}
+	if (exists) return;
+
+	if (!creatingOffscreenDocument) {
+		creatingOffscreenDocument = chrome.offscreen.createDocument({
+			url: OFFSCREEN_DOCUMENT_PATH,
+			reasons: ['CLIPBOARD'],
+			justification: '读取剪贴板图片，并把上传后的 Markdown 图片链接写回剪贴板。',
+		});
+	}
+	try {
+		await creatingOffscreenDocument;
+	} finally {
+		creatingOffscreenDocument = undefined;
+	}
+}
+
+async function runClipboardImageUpload(permissionRequest) {
+	let offscreenReady = false;
+	try {
+		if (!(await permissionRequest)) throw new Error('没有剪贴板读写权限，无法上传图片并复制链接。');
+
+		const { oss } = await loadSettings();
+		if (!isOssConfigured(oss)) throw new Error('图床还没配置完整，请先去设置页启用并配置 OSS。');
+		if (!(await chrome.permissions.contains(IMAGE_ORIGINS))) {
+			throw new Error('缺少图床跨域权限，请去设置页关闭再重新启用图床，并在弹窗中允许。');
+		}
+
+		await ensureOffscreenDocument();
+		offscreenReady = true;
+		const result = await chrome.runtime.sendMessage({
+			target: 'clipboard-offscreen',
+			type: 'upload-clipboard-image',
+			payload: { oss, maxBytes: MAX_IMAGE_BYTES },
+		});
+		if (!result?.ok) throw new Error(result?.message ?? '上传没有返回结果。');
+		await flashBadge(true, '图片已上传，Markdown 链接已复制。');
+		return result;
+	} catch (err) {
+		const message = err?.message ?? String(err);
+		console.error('[图床] 剪贴板图片上传失败:', message);
+		await flashBadge(false, message);
+		return { ok: false, message };
+	} finally {
+		if (offscreenReady) await chrome.offscreen.closeDocument().catch(() => {});
+	}
+}
+
+async function uploadClipboardImageFromMenu(permissionRequest) {
+	if (clipboardUploadTask) return clipboardUploadTask;
+	clipboardUploadTask = runClipboardImageUpload(permissionRequest);
+	try {
+		return await clipboardUploadTask;
+	} finally {
+		clipboardUploadTask = undefined;
+	}
 }
 
 /**
