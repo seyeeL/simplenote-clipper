@@ -17,7 +17,7 @@ import { createNote, SimperiumError } from './lib/simperium.js';
 import { loadAuth, loadSettings, saveImageReport } from './storage.js';
 
 const CLIP_MENU_ID = 'clip-to-simplenote';
-const UPLOAD_CLIPBOARD_IMAGE_MENU_ID = 'upload-clipboard-image';
+const UPLOAD_CLIPBOARD_IMAGE_ACTION_ID = 'upload-clipboard-image';
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 const DEFAULT_ACTION_TITLE = '剪藏到 Simplenote';
 const BADGE_MS = 4000;
@@ -59,7 +59,7 @@ chrome.runtime.onInstalled.addListener(() => {
 		);
 		chrome.contextMenus.create(
 			{
-				id: UPLOAD_CLIPBOARD_IMAGE_MENU_ID,
+				id: UPLOAD_CLIPBOARD_IMAGE_ACTION_ID,
 				title: '上传剪贴板图片并复制 Markdown 链接',
 				contexts: ['action'],
 			},
@@ -72,15 +72,23 @@ chrome.runtime.onInstalled.addListener(() => {
 	});
 });
 
+function startClipboardImageUpload() {
+	// permissions.request 必须直接由用户手势触发；菜单点击和快捷键都从这里同步发起。
+	const permissionRequest = chrome.permissions.request(CLIPBOARD_PERMISSIONS);
+	void uploadClipboardImage(permissionRequest);
+}
+
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-	if (info.menuItemId === UPLOAD_CLIPBOARD_IMAGE_MENU_ID) {
-		// permissions.request 必须直接由用户手势触发；不要放到读配置等异步步骤之后。
-		const permissionRequest = chrome.permissions.request(CLIPBOARD_PERMISSIONS);
-		void uploadClipboardImageFromMenu(permissionRequest);
+	if (info.menuItemId === UPLOAD_CLIPBOARD_IMAGE_ACTION_ID) {
+		startClipboardImageUpload();
 		return;
 	}
 	if (info.menuItemId !== CLIP_MENU_ID || !tab?.id) return;
 	void loadSettings().then((settings) => clip({ tabId: tab.id, tags: settings.defaultTags }));
+});
+
+chrome.commands.onCommand.addListener((command) => {
+	if (command === UPLOAD_CLIPBOARD_IMAGE_ACTION_ID) startClipboardImageUpload();
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -207,7 +215,7 @@ async function runClipboardImageUpload(permissionRequest) {
 	}
 }
 
-async function uploadClipboardImageFromMenu(permissionRequest) {
+async function uploadClipboardImage(permissionRequest) {
 	if (clipboardUploadTask) return clipboardUploadTask;
 	clipboardUploadTask = runClipboardImageUpload(permissionRequest);
 	try {
