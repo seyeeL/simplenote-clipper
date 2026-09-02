@@ -14,6 +14,9 @@ const DEFAULT_SETTINGS = {
 	// 作者名和来源域名要不要也打成标签，默认关。
 	tagAuthor: false,
 	tagSite: false,
+	// 剪贴板图片上传后，除了写回剪贴板，要不要直接插进当前光标所在的输入框。
+	// 默认关：这一步会改你正在编辑的内容，得你自己点头。
+	insertAtCursor: false,
 	// 图床（阿里云 OSS）。默认关闭，不填就走原图链接。
 	oss: {
 		enabled: false,

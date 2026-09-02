@@ -31,8 +31,10 @@ Chrome / Edge MV3 扩展：提取当前网页正文，转成 Markdown，直接�
 - 推特的推文页上还多一个「同时剪藏评论」，默认勾着（推特很多内容是一串，只剪第一条不完整），
   不想要底下的评论就取消勾选
 - 或在页面上右键 →「剪藏到 Simplenote」，用设置里的默认标签（走默认，图照留）
-- 图床配置好后，右键扩展图标 →「上传剪贴板图片并复制 Markdown 链接」，会把剪贴板里的图片
-  上传到 OSS，并把 `![](图片地址)` 写回剪贴板
+- 图床配置好后，按 `Alt+2`（或右键扩展图标 →「上传剪贴板图片并复制 Markdown 链接」），
+  会把剪贴板里的图片上传到 OSS，并把 `![](图片地址)` 写回剪贴板
+- 设置页勾上「同时插入当前光标所在的输入框」，链接还会直接落进你正在写的输入框，
+  见[下面这节](#剪贴板图片上传)
 
 ![popup](docs/popup.png)
 
@@ -232,6 +234,24 @@ Hi，我是Bruce
 设置页底部还会显示**最近一次剪藏**的图床结果：成功几张、失败几张、每张的失败原因。
 popup 关掉就没了，这份是落盘的。
 
+### 剪贴板图片上传
+
+`Alt+2` 或右键扩展图标 →「上传剪贴板图片并复制 Markdown 链接」：读剪贴板里的图片
+→ 传 OSS → 把 `![](图片地址)` 写回剪贴板。快捷键可以在 `chrome://extensions/shortcuts` 改。
+
+设置页有个「同时插入当前光标所在的输入框」，**默认关**，因为这一步会直接改你正在编辑的内容。
+开了之后：
+
+- 链接照样写回剪贴板，插入只是多做一步，不是替代
+- 注入到页面所有 frame，各自用 `document.hasFocus()` 认领 —— 很多在线编辑器把输入框放在
+  iframe 里，只注入顶层文档插不进去
+- 普通输入框走 `setRangeText` 而不是直接赋 `value`：React 换掉了 `value` 的 setter，
+  直接赋值会连它内部记的旧值一起更新，`onChange` 认为没变化，输入框看着变了、组件状态还是空的
+- 富文本编辑器走 `document.execCommand('insertText')`，虽然废弃但它是唯一能进浏览器撤销栈的插法；
+  被编辑器拦掉就退回 Selection API
+- 光标不在输入框、或页面不让注入脚本（`chrome://`、扩展商店、PDF）时只复制不插入，
+  鼠标悬停扩展图标能看到「当前没有可插入的输入框」
+
 ## 接口
 
 | 用途 | 端点 |
@@ -260,6 +280,7 @@ popup 关掉就没了，这份是落盘的。
 | `lib/domains.js` | 域名 → 标签映射表 |
 | `lib/site-rules.js` | 站点专用提取规则，见 [docs/sites.md](docs/sites.md) |
 | `lib/images.js` | 正文里图片链接的收集与替换、后缀判定、内容哈希 |
+| `lib/insert-at-cursor.js` | 把文本插到页面光标处。注入到页面里跑，只依赖 DOM |
 | `lib/oss.js` | 阿里云 OSS 签名与上传 |
 | `lib/simperium.js` | 登录与写入的 HTTP 客户端，错误统一包成 `SimperiumError` |
 | `lib/throttle.js` | 请求节流闸门，挡住连点重复发请求 |
@@ -269,7 +290,7 @@ popup 关掉就没了，这份是落盘的。
 | `tools/probe.mjs` | 调试用：对真实页面跑一遍提取，见下 |
 | `tools/screenshot.mjs` | 重新生成 README 里的设置页 / popup 截图 |
 
-`lib/extract.js`、`lib/html2md.js`、`lib/site-rules.js` 在 `manifest.json` 里声明为
+`lib/extract.js`、`lib/html2md.js`、`lib/site-rules.js`、`lib/insert-at-cursor.js` 在 `manifest.json` 里声明为
 `web_accessible_resources`，因为注入脚本要 `import()` 它们；`lib/simperium.js`、
 `storage.js` 不外露。给注入侧拆新模块时记得一起加进去，漏了页面会直接 `ReferenceError`。
 

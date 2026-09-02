@@ -72,23 +72,25 @@ chrome.runtime.onInstalled.addListener(() => {
 	});
 });
 
-function startClipboardImageUpload() {
+function startClipboardImageUpload(tabId) {
 	// permissions.request 必须直接由用户手势触发；菜单点击和快捷键都从这里同步发起。
 	const permissionRequest = chrome.permissions.request(CLIPBOARD_PERMISSIONS);
-	void uploadClipboardImage(permissionRequest);
+	// tabId 要在这里就抓住：上传要等几秒，等结束再去查「当前标签页」，
+	// 用户可能已经切走了，链接就插到别的页面里去了
+	void uploadClipboardImage(permissionRequest, tabId);
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
 	if (info.menuItemId === UPLOAD_CLIPBOARD_IMAGE_ACTION_ID) {
-		startClipboardImageUpload();
+		startClipboardImageUpload(tab?.id);
 		return;
 	}
 	if (info.menuItemId !== CLIP_MENU_ID || !tab?.id) return;
 	void loadSettings().then((settings) => clip({ tabId: tab.id, tags: settings.defaultTags }));
 });
 
-chrome.commands.onCommand.addListener((command) => {
-	if (command === UPLOAD_CLIPBOARD_IMAGE_ACTION_ID) startClipboardImageUpload();
+chrome.commands.onCommand.addListener((command, tab) => {
+	if (command === UPLOAD_CLIPBOARD_IMAGE_ACTION_ID) startClipboardImageUpload(tab?.id);
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -184,12 +186,40 @@ async function ensureOffscreenDocument() {
 	}
 }
 
-async function runClipboardImageUpload(permissionRequest) {
+/**
+ * 把 Markdown 链接插到页面里当前光标处。注入到所有 frame，各自用 hasFocus()
+ * 认领 —— 焦点在 iframe 里（很多在线编辑器都是）时，只注入顶层文档插不进去。
+ */
+async function insertAtCursorInTab(tabId, text) {
+	if (!tabId) return false;
+	const libBase = chrome.runtime.getURL('lib/');
+	const injected = await chrome.scripting.executeScript({
+		target: { tabId, allFrames: true },
+		args: [libBase, text],
+		func: async (base, value) => {
+			const { insertAtCursor } = await import(`${base}insert-at-cursor.js`);
+			return insertAtCursor(value);
+		},
+	});
+	return injected.some((frame) => frame?.result === true);
+}
+
+/** 插入失败不算这次上传失败：链接已经在剪贴板里，手动粘一下就行。 */
+async function insertUploadedLink(tabId, text) {
+	try {
+		return await insertAtCursorInTab(tabId, text);
+	} catch (err) {
+		console.warn('[图床] 插入光标处失败，链接仍在剪贴板:', err?.message ?? err);
+		return false;
+	}
+}
+
+async function runClipboardImageUpload(permissionRequest, tabId) {
 	let offscreenReady = false;
 	try {
 		if (!(await permissionRequest)) throw new Error('没有剪贴板读写权限，无法上传图片并复制链接。');
 
-		const { oss } = await loadSettings();
+		const { oss, insertAtCursor } = await loadSettings();
 		if (!isOssConfigured(oss)) throw new Error('图床还没配置完整，请先去设置页启用并配置 OSS。');
 		if (!(await chrome.permissions.contains(IMAGE_ORIGINS))) {
 			throw new Error('缺少图床跨域权限，请去设置页关闭再重新启用图床，并在弹窗中允许。');
@@ -203,8 +233,17 @@ async function runClipboardImageUpload(permissionRequest) {
 			payload: { oss, maxBytes: MAX_IMAGE_BYTES },
 		});
 		if (!result?.ok) throw new Error(result?.message ?? '上传没有返回结果。');
-		await flashBadge(true, '图片已上传，Markdown 链接已复制。');
-		return result;
+
+		const inserted = insertAtCursor ? await insertUploadedLink(tabId, result.markdown) : false;
+		await flashBadge(
+			true,
+			inserted
+				? '图片已上传，Markdown 链接已插入光标处并复制。'
+				: insertAtCursor
+					? '图片已上传，Markdown 链接已复制（当前没有可插入的输入框）。'
+					: '图片已上传，Markdown 链接已复制。',
+		);
+		return { ...result, inserted };
 	} catch (err) {
 		const message = err?.message ?? String(err);
 		console.error('[图床] 剪贴板图片上传失败:', message);
@@ -215,9 +254,9 @@ async function runClipboardImageUpload(permissionRequest) {
 	}
 }
 
-async function uploadClipboardImage(permissionRequest) {
+async function uploadClipboardImage(permissionRequest, tabId) {
 	if (clipboardUploadTask) return clipboardUploadTask;
-	clipboardUploadTask = runClipboardImageUpload(permissionRequest);
+	clipboardUploadTask = runClipboardImageUpload(permissionRequest, tabId);
 	try {
 		return await clipboardUploadTask;
 	} finally {
