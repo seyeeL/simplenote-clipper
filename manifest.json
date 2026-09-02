@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Simplenote 剪藏",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "提取网页正文转成 Markdown，一键存进 Simplenote",
   "permissions": [
     "storage",
@@ -45,6 +45,7 @@
       "resources": [
         "lib/extract.js",
         "lib/html2md.js",
+        "lib/insert-at-cursor.js",
         "lib/site-rules.js"
       ],
       "matches": [

@@ -24,7 +24,20 @@ async function renderSettings() {
 	$('title-heading').checked = Boolean(settings.titleHeading);
 	$('tag-author').checked = Boolean(settings.tagAuthor);
 	$('tag-site').checked = Boolean(settings.tagSite);
+	$('insert-at-cursor').checked = Boolean(settings.insertAtCursor);
 }
+
+// 单独一个开关，勾了就存 —— 不放进「剪藏默认值」那个保存按钮下面，
+// 免得改了这里以为没生效
+$('insert-at-cursor').addEventListener('change', async () => {
+	const wanted = $('insert-at-cursor').checked;
+	await saveSettings({ insertAtCursor: wanted });
+	setStatus(
+		'clipboard-status',
+		wanted ? '已开启：上传后链接会插到光标处，同时仍然写回剪贴板。' : '已关闭：上传后只把链接写回剪贴板。',
+		'ok',
+	);
+});
 
 // 两次请求之间至少隔这么久。连点时多余的点击直接丢掉，不发请求。
 const REQUEST_INTERVAL_MS = 3000;

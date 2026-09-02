@@ -171,6 +171,24 @@
     </div>
   </section>
 
+  <section>
+    <h2>剪贴板图片上传</h2>
+    <p class="hint">
+      按 <code>Alt+2</code>，或右键扩展图标 →「上传剪贴板图片并复制 Markdown 链接」，
+      把剪贴板里的图片传到图床，并把 <code>![](图片地址)</code> 写回剪贴板。需要先配好上面的图床。
+    </p>
+
+    <div class="row">
+      <input type="checkbox" id="insert-at-cursor">
+      <label for="insert-at-cursor">同时插入当前光标所在的输入框</label>
+    </div>
+    <p class="hint" style="margin:6px 0 0">
+      默认关：这一步会直接改你正在编辑的内容。开了之后链接照样写回剪贴板，
+      光标不在输入框（或页面不让注入脚本）时就只复制，不会报错。
+    </p>
+    <div class="status" id="clipboard-status"></div>
+  </section>
+
   <script type="module" src="options.js"></script>
 </body>
 </html>
