@@ -16,6 +16,7 @@ test('扩展重复安装或更新时右键菜单保持单例', async () => {
 			},
 			onMessage: { addListener() {} },
 		},
+		commands: { onCommand: { addListener() {} } },
 		contextMenus: {
 			onClicked: { addListener() {} },
 			removeAll(callback) {
