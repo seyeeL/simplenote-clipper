@@ -1,6 +1,6 @@
 {
   "name": "simplenote-clipper",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "description": "把网页正文提取为 Markdown 存进 Simplenote 的 Chrome/Edge MV3 扩展",
