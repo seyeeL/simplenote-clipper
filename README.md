@@ -15,6 +15,8 @@ Chrome / Edge MV3 扩展：提取当前网页正文，转成 Markdown，直接�
 
 ![设置页](docs/options.png)
 
+Mac 上点击图标后弹窗迟迟不出现，见[弹窗延迟排查](docs/2026-09-05-Mac弹窗延迟排查.md)。
+
 ## 登录
 
 点扩展图标 → 「设置」，填 Simplenote 邮箱 → 发送验证码 → 填邮件里的验证码 → 登录。
