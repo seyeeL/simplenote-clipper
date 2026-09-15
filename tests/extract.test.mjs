@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
+import { htmlToMarkdown } from '../lib/html2md.js';
+import { buildNoteContent, toDateString } from '../lib/note.js';
 
 import {
 	dropNested,
+	extractArticle,
 	keepGuard,
 	keepLineBreaks,
 	quoteBlocks,
@@ -286,5 +290,120 @@ test('format 返回空或者报错，还照原样收', () => {
 		const { root } = quoteBox(inner);
 		quoteBlocks(root, ['article'], format);
 		assert.equal(root.textContent, '引用的那条推');
+	}
+});
+
+test('回归：X 长文章不能只剪到封面，正文、标题和段落都要留下', () => {
+	// 2099736121781764594 的未登录 DOM：普通推文正文为空，长文章另放在 x-article-body。
+	// 用离线 DOM 跑真正的选择器；不能用按选择器返回假节点的 stub 验这一层。
+	const { document } = parseHTML(`<html><head><title>Kin on X</title></head><body>
+		<article>
+			<a href="https://x.com/KinGao476942">Kin</a>
+			<div dir="auto"></div>
+			<div>
+				<img src="https://pbs.twimg.com/media/cover?format=webp&amp;name=medium" alt="Article cover image">
+				<h1 dir="auto">做自媒体怎么用好 Grok bot</h1>
+				<div><a href="/i/status/2099736121781764594" aria-label="Reply">17</a><button>99 Like</button><span>148 Bookmark</span></div>
+				<div class="x-article-body break-words">
+					<style>.article-style { color: red; }</style>
+					<div class="contents">
+						<p>前几天有个朋友找我，他用 AI 做了个挺好用的小工具。</p>
+						<h2>一、为什么偏偏是现在</h2>
+						<p>瓶颈整个挪到了<strong>后半段</strong>。</p>
+						<ul><li>先写身份卡</li><li>再建选题表</li></ul>
+						<p>这篇如果对你有用，也欢迎在评论区留言。</p>
+					</div>
+				</div>
+			</div>
+			<a href="/KinGao476942/status/2099736121781764594">13:44 · 2026年9月15日</a>
+			<span>1.4万 Views</span>
+		</article>
+		<article><a href="/other/status/2099748054563688620">9h</a><div dir="auto">这是回复，不是正文</div></article>
+		<aside>Log in or sign up for X</aside>
+	</body></html>`);
+	const before = document.body.innerHTML;
+	const article = extractArticle(document, 'https://x.com/kingao476942/status/2099736121781764594');
+	const markdown = htmlToMarkdown(article.root);
+	assert.equal(article.title, 'Kin on X: 做自媒体怎么用好 Grok bot');
+	assert.equal(article.author, 'Kin');
+	const published = toDateString(new Date('2026-09-15T05:44:37.300Z'));
+	assert.equal(article.publishedAt, published, '发布时间不能取成 Reply 链接里的 17');
+	const note = buildNoteContent({ ...article, markdown, clippedAt: '2026-09-16' });
+	assert.ok(note.includes(`published: ${published}  \n`));
+	assert.doesNotMatch(note, /^published: 17\s*$/m);
+	assert.match(markdown, /前几天有个朋友找我，他用 AI 做了个挺好用的小工具。/);
+	assert.match(markdown, /## 一、为什么偏偏是现在\n\n瓶颈整个挪到了\*\*后半段\*\*。/);
+	assert.match(markdown, /- 先写身份卡\n- 再建选题表/);
+	assert.match(markdown, /这篇如果对你有用，也欢迎在评论区留言。/);
+	assert.match(markdown, /!\[Article cover image\]\(https:\/\/pbs\.twimg\.com\/media\/cover\?format=webp&name=large\)/);
+	assert.doesNotMatch(markdown, /Views|Bookmark|Like|这是回复|Log in|article-style/);
+	assert.equal(document.body.innerHTML, before, '只清洗克隆体，不能改页面');
+});
+
+test('X 长文章没有 h1 时仍用正文开头和作者包装标题', () => {
+	const { document } = parseHTML(`<html><body><article>
+		<a href="https://x.com/KinGao476942">Kin</a>
+		<a href="/KinGao476942/status/2099736121781764594">2026-09-15</a>
+		<div dir="auto"></div>
+		<div class="x-article-body"><p>先写身份卡，再建选题表。</p></div>
+	</article></body></html>`);
+	const article = extractArticle(document, 'https://x.com/KinGao476942/status/2099736121781764594');
+	assert.equal(article.title, 'Kin on X: 先写身份卡，再建选题表。');
+});
+
+test('X 主推优先用当前 URL 的 snowflake，不用页面上其他日期', () => {
+	const { document } = parseHTML(`<html><body><article>
+		<time datetime="2025-01-01T12:00:00Z">1月1日</time>
+		<a href="/u/status/2099736121781764594">8h</a>
+		<div dir="auto">主推正文</div>
+	</article></body></html>`);
+	const published = toDateString(new Date('2026-09-15T05:44:37.300Z'));
+	for (const host of ['x.com', 'twitter.com']) {
+		assert.equal(extractArticle(document, `https://${host}/u/status/2099736121781764594`).publishedAt, published);
+	}
+});
+
+test('X 无法从 URL 取日期时用绝对时间，没有就不把互动数当日期', () => {
+	const { document } = parseHTML(`<html><body><article>
+		<a href="/i/status/2099736121781764594" aria-label="Reply">17</a>
+		<time datetime="2026-09-15T05:44:37.300Z">9月15日</time>
+		<div dir="auto">正文</div>
+	</article></body></html>`);
+	const url = 'https://x.com/u';
+	assert.equal(toDateString(extractArticle(document, url).publishedAt), '2026-09-15');
+	document.querySelector('time').remove();
+	assert.equal(extractArticle(document, url).publishedAt, '');
+});
+
+test('X 和 Twitter 的 status 来源链接去 query，保存的笔记也用干净链接', () => {
+	const { document } = parseHTML('<html><body><article><p>正文</p></article></body></html>');
+	for (const canonical of [
+		'https://x.com/kingao476942/status/2099736121781764594',
+		'https://twitter.com/u/status/123',
+		'https://mobile.twitter.com/u/status/123/photo/1',
+		'https://www.x.com/i/web/status/123',
+	]) {
+		const article = extractArticle(document, `${canonical}?s=46&t=tracking`);
+		assert.equal(article.url, canonical);
+		const note = buildNoteContent({ ...article, markdown: htmlToMarkdown(article.root), clippedAt: '2026-09-16' });
+		assert.ok(note.includes(`url: ${canonical}  \n`));
+		assert.doesNotMatch(note, /\?s=|tracking/);
+	}
+	// 没显式传 URL 时，当前页地址也走同一条规范化路径；只去 query，不动锚点。
+	document.location = { href: 'https://x.com/u/status/123?s=46#detail' };
+	assert.equal(extractArticle(document).url, 'https://x.com/u/status/123#detail');
+});
+
+test('来源链接规范化不改其他站点和非 status 页的查询参数', () => {
+	const { document } = parseHTML('<html><body><article><p>正文</p></article></body></html>');
+	for (const url of [
+		'https://example.com/u/status/123?s=46',
+		'https://x.com.evil.example/u/status/123?s=46',
+		'https://x.com/search?q=grok',
+		'https://twitter.com/u?lang=zh',
+		'https://x.com/u/status/not-a-number?s=46',
+		'not a URL?s=46',
+	]) {
+		assert.equal(extractArticle(document, url).url, url);
 	}
 });
