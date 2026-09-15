@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { loadSettings, saveSettings } from '../storage.js';
 
 import {
 	authorTag,
@@ -12,7 +13,7 @@ import {
 } from '../lib/note.js';
 
 test('标签按空格 / 半角逗号 / 全角逗号切分并去重（忽略大小写）', () => {
-	assert.deepEqual(normalizeTags('clip 技术，读书,Clip'), ['clip', '技术', '读书']);
+	assert.deepEqual(normalizeTags('clippings 技术，读书,Clippings'), ['clippings', '技术', '读书']);
 	assert.deepEqual(normalizeTags(['a b', 'c']), ['a', 'b', 'c']);
 	assert.deepEqual(normalizeTags(''), []);
 	assert.deepEqual(normalizeTags(null), []);
@@ -38,32 +39,58 @@ test('作者字段抓到整段简介时不打标签（>40 字符）', () => {
 	assert.equal(authorTag('x'.repeat(41)), '');
 });
 
+test('未配置时剪藏标签为 clippings，已保存的标签和空值不被默认值覆盖', async (t) => {
+	let stored = {};
+	const previous = globalThis.chrome;
+	t.after(() => {
+		if (previous === undefined) delete globalThis.chrome;
+		else globalThis.chrome = previous;
+	});
+	globalThis.chrome = {
+		storage: { local: {
+			get: async () => structuredClone(stored),
+			set: async (patch) => { stored = { ...stored, ...structuredClone(patch) }; },
+		} },
+	};
+	const noteTags = async () => buildNoteData({
+		content: '剪藏正文',
+		tags: buildTags({ tags: (await loadSettings()).defaultTags }),
+	}).tags;
+	assert.deepEqual(await noteTags(), ['clippings']);
+	await saveSettings({ pinned: true });
+	assert.deepEqual(await noteTags(), ['clippings'], '保存其他设置不能丢掉默认标签');
+	await saveSettings({ defaultTags: '自定义 技术' });
+	assert.deepEqual(await noteTags(), ['自定义', '技术']);
+	await saveSettings({ defaultTags: '' });
+	assert.deepEqual(await noteTags(), [], '用户明确清空标签时不能补回默认值');
+});
+
 test('默认只有手填标签，作者和域名都不加', () => {
 	assert.deepEqual(
-		buildTags({ tags: 'clip 技术', author: '张三', url: 'https://mp.weixin.qq.com/s/abc' }),
-		['clip', '技术'],
+		buildTags({ tags: 'clippings 技术', author: '张三', url: 'https://mp.weixin.qq.com/s/abc' }),
+		['clippings', '技术'],
 	);
 });
 
 test('开了开关才加作者 / 站点标签，并去重', () => {
 	assert.deepEqual(
 		buildTags({
-			tags: 'clip 技术',
+			tags: 'clippings 技术',
 			author: '张三',
 			url: 'https://mp.weixin.qq.com/s/abc',
 			withAuthor: true,
 			withSite: true,
 		}),
-		['clip', '技术', '张三', '公众号'],
+		['clippings', '技术', '张三', '公众号'],
 	);
 	// 两个开关互不影响
 	assert.deepEqual(
-		buildTags({ tags: 'clip', author: '张三', url: 'https://weibo.com/x', withAuthor: true }),
-		['clip', '张三'],
+		buildTags({ tags: 'clippings', author: '张三', url: 'https://weibo.com/x', withAuthor: true }),
+		['clippings', '张三'],
 	);
 	assert.deepEqual(
-		buildTags({ tags: 'clip', author: '张三', url: 'https://weibo.com/x', withSite: true }),
-		['clip', '微博'],
+		buildTags({ tags: 'clippings', author: '张三', url: 'https://weibo.com/x', withSite: true }),
+		['clippings', '微博'],
 	);
 	// 手填标签里已经有站点名时不重复加
 	assert.deepEqual(
@@ -73,10 +100,10 @@ test('开了开关才加作者 / 站点标签，并去重', () => {
 });
 
 test('没有作者或 URL 时 buildTags 不产出空标签', () => {
-	assert.deepEqual(buildTags({ tags: 'clip', withAuthor: true, withSite: true }), ['clip']);
+	assert.deepEqual(buildTags({ tags: 'clippings', withAuthor: true, withSite: true }), ['clippings']);
 	assert.deepEqual(
-		buildTags({ tags: 'clip', url: '不是个 URL', withAuthor: true, withSite: true }),
-		['clip'],
+		buildTags({ tags: 'clippings', url: '不是个 URL', withAuthor: true, withSite: true }),
+		['clippings'],
 	);
 });
 

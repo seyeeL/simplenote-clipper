@@ -192,15 +192,16 @@ https://sns-webpic-qc.xhscdn.com/<时间戳>/<hash>/notes_pre_post/<id>!nd_dft_w
 | 项 | 取法 |
 |----|------|
 | 主推 | 按 URL 里的推文 id 框出那一个 `<article>`（`scope`），后面所有选择器都只在这块里找 |
-| 正文 | 新版 `div[dir="auto"]`，老版 `[data-testid="tweetText"]`，两条互斥 |
+| 正文 | 普通推文：新版 `div[dir="auto"]`，老版 `[data-testid="tweetText"]`，两条互斥；长文章另取 `.x-article-body` |
 | 配图 | `img[src*="twimg.com/media/"]`，尺寸档换成 `large` |
 | 视频 | 存不进笔记，留 `<video>` 的封面图（`videoPoster`） |
 | 引用推文 | 嵌在主推里的另一个 `<article>`，重排成「抬头 + 正文 + 配图」再套成引用段（`blockquote` + `formatQuote`） |
 | 作者 | 昵称那个指向个人页的链接，老版退到 `[data-testid="User-Name"]` |
-| 时间 | 时间戳链接的文字，切掉中间点前面的时分 |
-| 标题 | 推文没有标题：`作者 on X: 正文开头 40 字`（`titleFormat`） |
+| 时间 | 主推优先从当前 URL 的 status id（snowflake）换算本地日期 `YYYY-MM-DD`；取不到时退到 `<time datetime>` 等页面绝对时间，不读普通 status 链接上的 Reply / Views 数字 |
+| 标题 | 普通推文：`作者 on X: 正文开头 40 字`；长文章优先取主推内的 `h1`，同样经 `titleFormat` 包装为 `作者 on X: 文章标题`，无 `h1` 时退回正文开头 |
 | 回复 | 主推底下的串和评论，一条一段引用（`**昵称 @handle** · [日期](链接)` + 正文），popup 里「同时剪藏评论」默认勾着（`replies`） |
 | 标签 | `推特` |
+| 来源链接 | `/status/…` 自动去掉 query 参数，保留路径和锚点；回复、引用推文的日期链接同样清理 |
 
 实测 2026-08-25，未登录状态（下面「两代前端」那一节说为什么要强调这个）：
 
@@ -214,6 +215,12 @@ https://sns-webpic-qc.xhscdn.com/<时间戳>/<hash>/notes_pre_post/<id>!nd_dft_w
 
 作者和时间五条都对。`https://twitter.com/...` 和配图页那种 `/status/<id>/photo/1` 的 URL 一起验过，
 走的是同一条路。
+
+2026-09-16 补验长文章：[做自媒体怎么用好 Grok bot](https://x.com/kingao476942/status/2099736121781764594)。
+未登录 DOM 的普通正文块为空，正文在 `.x-article-body`；旧规则只剪到封面。
+补上规则后 111 个正文段落全部保留，独立标题正确；开启、关闭评论均通过，来源链接不带分享参数。
+主推发布时间也已补验：文章顶部的 Reply 链接文字是 `17`，排在真正的日期链接前面，旧选择器会误取。
+现在从 status id 换算，示例笔记输出 `published: 2026-09-15`；与回复共用 snowflake 换算和本地时区。
 
 **先框出「哪一条是主推」，再谈选择器。** 推文详情页上，上文、主推、回复是一排长得一模一样的
 `<article>`，引用推文还会在主推里再嵌一层。光靠选择器分不出哪个是用户点开的那条 —— 早期版本
@@ -417,7 +424,7 @@ Medium、Reddit、HackerNews 等）。它们只影响**标签**叫什么，不�
      publishedFrom: (doc, url) => '',// 页面上只有相对时间、真实时间藏在别处时用
      scope: (doc, url) => null,     // 一页上有一堆同构卡片时，先框出「点开的是哪一个」
      replies: (doc, url) => [],     // 主贴底下的回复，勾了「连回复一起剪」才收
-     titleFormat: ({ body, author }) => body,  // 正文开头当标题时再包一层
+     titleFormat: ({ body, author }) => body,  // 独立标题或正文开头选定后再包一层
      rewriteImageSrc: (src) => src, // 改图片地址（缩略图换原图之类）
      imageReferer: 'https://example.com/',  // 图片站点要防盗链 Referer 时用
      imageHosts: ['img.example.com'],       // 上面那个 Referer 补给哪些域名
@@ -462,7 +469,8 @@ Medium、Reddit、HackerNews 等）。它们只影响**标签**叫什么，不�
 5. 跑一遍测试，再回来更新这份文档：
 
    ```bash
-   node --test "tests/*.test.mjs"
+   npm ci
+   npm test
    ```
 
 ## 注意

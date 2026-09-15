@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
+import { extractArticle } from '../lib/extract.js';
 
 import {
 	SITE_RULES,
@@ -289,40 +291,32 @@ test('没有 name 参数的推特图片一律不碰', () => {
 	assert.equal(upgradeTwimgImage('不是个 URL'), '不是个 URL');
 });
 
-test('推特时间戳切掉中间点前面的时分，中英文都能落成日期', () => {
-	assert.equal(x.normalizePublished('23:51 · 2026年8月23日'), '2026年8月23日');
-	assert.equal(toDateString(x.normalizePublished('23:51 · 2026年8月23日')), '2026-08-23');
-	// 英文界面是另一种写法，切完 new Date() 吃得下
-	assert.equal(toDateString(x.normalizePublished('11:51 PM · Aug 23, 2026')), '2026-08-23');
-	// 老版页面的 <time datetime> 是 ISO 串，里面没有中间点，原样通过
-	assert.equal(
-		toDateString(x.normalizePublished('2026-08-23T15:51:48.000Z')),
-		toDateString('2026-08-23T15:51:48.000Z'),
-	);
-});
-
-test('推特两代前端的正文选择器要互斥', () => {
-	// 老版页面上 dir="auto" 满天飞（昵称、卡片标题都有），两条路一起收会带进一堆噪声
-	const roots = x.root;
-	const classic = roots.find((s) => s.startsWith('[data-testid="tweetText"]'));
-	const modern = roots.find((s) => s.startsWith('div[dir="auto"]'));
-	assert.ok(classic && modern, '两代前端各要有一条正文选择器');
-	assert.ok(
-		modern.includes(':not(article:has([data-testid="tweetText"]) *)'),
-		`${modern} 会在老版页面上跟着命中`,
-	);
-});
-
-test('推特正文只收主推的，引用推文单独成块', () => {
-	const roots = x.root;
-	// 引用推文是嵌在主推里的另一个 article，混进来会读成同一个人说的
-	for (const selector of roots.filter((s) => s !== 'article article')) {
-		assert.ok(selector.includes(':not(article article *)'), `${selector} 会把引用推文的内容混进主推`);
+test('推特两代前端都只收正文，昵称和引用推文不混进主推', () => {
+	for (const body of [
+		'<div dir="auto">主推第一行\\n主推第二行</div>',
+		'<div data-testid="tweetText" dir="auto">主推第一行\\n主推第二行</div><div dir="auto">卡片标题噪声</div>',
+	]) {
+		const { document } = parseHTML(`<html><body>
+			<article>
+				<a href="https://x.com/u">昵称</a>
+				<a href="/u/status/111">2026-09-15</a>
+				${body.replaceAll('\\n', '\n')}
+				<article>
+					<a href="https://x.com/q">引用作者</a>
+					<a href="/q/status/222">2026-09-14</a>
+					<div dir="auto">引用正文</div>
+				</article>
+			</article>
+			<article><a href="/r/status/333">2026-09-16</a><div dir="auto">回复噪声</div></article>
+		</body></html>`);
+		const article = extractArticle(document, 'https://x.com/u/status/111');
+		const markdown = htmlToMarkdown(article.root);
+		assert.match(article.title, /^昵称 on X: 主推第一行/);
+		assert.match(markdown, /^主推第一行  \n主推第二行\n\n> /);
+		assert.match(markdown, /> 引用正文/);
+		assert.equal(markdown.split('引用正文').length - 1, 1);
+		assert.doesNotMatch(markdown, /卡片标题噪声|回复噪声/);
 	}
-	assert.ok(roots.includes('article article'), '引用推文要整块收，不能丢');
-	assert.deepEqual(x.blockquote, ['article'], '引用推文划成引用段');
-	assert.equal(x.videoPoster, true, '视频存不进笔记，留封面图');
-	assert.equal(x.titleFromBody, true, '推文没有标题，取正文开头');
 });
 
 /**
@@ -444,6 +438,18 @@ const replyMd = (doc, url) => {
 	for (const block of x.replies(doc, url)) wrap.appendChild(block);
 	return htmlToMarkdown(wrap);
 };
+
+test('回复日期链接清掉分享参数，不把追踪参数带进笔记', () => {
+	const doc = tweetPage(
+		{ id: '111', name: '主推作者', text: '主推' },
+		{ id: '222', name: '回复作者', text: '回复正文', iso: '2026-09-15T12:00:00Z' },
+	);
+	doc.byId('222').statusLink.setAttribute('href', '/u/status/222?s=46&t=tracking');
+	const markdown = replyMd(doc, 'https://twitter.com/u/status/111?s=46');
+	assert.match(markdown, /\]\(https:\/\/twitter\.com\/u\/status\/222\)/);
+	assert.match(markdown, /回复正文/);
+	assert.doesNotMatch(markdown, /\?s=|tracking/);
+});
 
 /** 带 > 前缀的抬头行：一眼看出有几条、谁在谁下面。 */
 const replyLines = (doc, url) =>
