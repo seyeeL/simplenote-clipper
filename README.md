@@ -150,8 +150,8 @@ Hi，我是Bruce
 
 ### 站点兼容
 
-大部分文章页走通用启发式就能抓，不用配置。微信公众号、微博、小红书、X（推特）写了专用
-规则（SPA 或者正文里一个 `<p>` 都没有，通用打分对付不了）。实测过哪些站点、各自怎么取、
+大部分文章页走默认规则就能抓，不用配置。微信公众号、微博、小红书、X（推特）写了专用
+规则（SPA 或者正文里一个 `<p>` 都没有，默认规则对付不了）。实测过哪些站点、各自怎么取、
 还有什么缺口，见 **[docs/sites.md](docs/sites.md)**。提取逻辑和站点规则拆到了独立仓库
 **[web-extract](https://github.com/seyeeL/web-extract)**，每个站点的取法细节和加新站点的步骤在它的
 [docs/sites.md](https://github.com/seyeeL/web-extract/blob/main/docs/sites.md)。
@@ -366,7 +366,7 @@ web-extract parse "<url>" --attach --md     # 要登录态的站点，连已经�
 
 ## 已知边界
 
-- **正文提取是启发式的**，论坛、瀑布流、SPA 这类页面会漏，噪声过滤按 class / id 命名猜
+- **默认规则是按页面结构猜的**，论坛、瀑布流、SPA 这类页面会漏，噪声过滤按 class / id 命名猜
   也会误伤。细节见 [web-extract 的已知边界](https://github.com/seyeeL/web-extract#已知边界)。提取不到正文时笔记只留链接，
   不会写出空笔记。
 - **不去重**。同一个 URL 剪两次会产生两条笔记。查重要走 Simperium 的 index 接口全表扫，

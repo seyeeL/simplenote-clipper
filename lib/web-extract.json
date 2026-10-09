@@ -1,9 +1,9 @@
 {
   "source": "https://github.com/seyeeL/web-extract",
-  "commit": "28d52bfaeaf1c228d2ace22ff2ca9f43287dea71",
+  "commit": "2da4ccc0065d058b5a40cd6809aa26b17b014e4d",
   "files": {
-    "lib/extract.js": "eb31af9577c9cd596c08e955fde81b7f2ef78cb1e1a41885da76109406b72205",
+    "lib/extract.js": "a22f40a9a79beb5fce3748cb3666c82aab8dfaa038c81d8aaeea9ba50e8c83af",
     "lib/html2md.js": "34e992d13648a5733b176a83ecfdd09dad442e5160c37c22e142a8dd05770533",
-    "lib/site-rules.js": "76e5ddeed5558adfb8f907e0069a88e0b88b75110d399e6cc84347812a9d0343"
+    "lib/site-rules.js": "836a227a811e275278b7f026855421f204114371fbd69c5a97af6a3083cf3691"
   }
 }

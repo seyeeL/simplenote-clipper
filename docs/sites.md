@@ -1,6 +1,6 @@
 # 站点兼容清单
 
-这个扩展默认走通用启发式提取正文，大部分文章页不用配置就能抓。提取逻辑和站点规则在独立仓库
+这个扩展走默认规则提取正文，大部分文章页不用配置就能抓。提取逻辑和站点规则在独立仓库
 [web-extract](https://github.com/seyeeL/web-extract)，每个站点**怎么取、实测过哪些页面、踩过什么坑**
 都记在它的 [docs/sites.md](https://github.com/seyeeL/web-extract/blob/main/docs/sites.md)。
 这里只记扩展这一侧的事。
