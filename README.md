@@ -152,7 +152,9 @@ Hi，我是Bruce
 
 大部分文章页走通用启发式就能抓，不用配置。微信公众号、微博、小红书、X（推特）写了专用
 规则（SPA 或者正文里一个 `<p>` 都没有，通用打分对付不了）。实测过哪些站点、各自怎么取、
-还有什么缺口，见 **[docs/sites.md](docs/sites.md)**，加新站点的步骤也在那里。
+还有什么缺口，见 **[docs/sites.md](docs/sites.md)**。提取逻辑和站点规则拆到了独立仓库
+**[web-extract](https://github.com/seyeeL/web-extract)**，每个站点的取法细节和加新站点的步骤在它的
+[docs/sites.md](https://github.com/seyeeL/web-extract/blob/main/docs/sites.md)。
 
 推特剪的是你点开的那一条推：正文、配图、视频封面和引用推文（引用的那条排成
 `**昵称 @handle** · [日期](原推链接)` 加正文），头像和「转推 / 收藏 / Views」
@@ -164,7 +166,7 @@ Hi，我是Bruce
 回复某条评论的那条套进它的引用段里 —— 版式和 Obsidian 官方剪藏器对齐。
 
 小红书要在登录态下才抓得到：干净 profile 打开笔记页会被风控挡成一张拦截页。扩展跑在你
-自己的浏览器里没问题，用 `tools/probe.mjs` 调试则拿不到内容，得连已登录的浏览器。
+自己的浏览器里没问题，用 web-extract 的 `--browser` 调试则拿不到内容，得 `--attach` 连已登录的浏览器。
 
 ### 标签
 
@@ -209,7 +211,8 @@ Hi，我是Bruce
   换 Chrome UA 立刻 403，补上 `Referer: https://weibo.com/` 又回到 200。`Referer` 是 fetch
   的禁止头改不了，所以抓图期间临时装一条 `declarativeNetRequest` 会话规则把它补上，抓完撤掉。
   规则限定在 `tabIds: [-1]`（service worker 自己发的请求），不碰你正在看的页面。
-  哪个站点要补什么 Referer 写在 `lib/site-rules.js` 的 `imageReferer` / `imageHosts` 里。
+  哪个站点要补什么 Referer 写在站点规则（`lib/site-rules.js`，web-extract 的副本）的
+  `imageReferer` / `imageHosts` 里。
 - 单张超过 10 MB 跳过；同时最多传 4 张。
 - bucket 不需要配 CORS 规则：扩展拿到 host 权限后发请求不受 CORS 限制。
 
@@ -278,11 +281,12 @@ popup 关掉就没了，这份是落盘的。
 
 | 文件 | 职责 |
 |------|------|
-| `lib/extract.js` | 网页正文与元信息提取。需要真 DOM，只在页面上下文里跑 |
-| `lib/html2md.js` | DOM → Markdown。只用五个 DOM 接口走树，纯逻辑，可 node 测 |
+| `lib/extract.js` | 网页正文与元信息提取。**web-extract 的副本**，见下 |
+| `lib/html2md.js` | DOM → Markdown。**web-extract 的副本** |
 | `lib/note.js` | 纯函数：拼笔记正文、组 Simperium payload、标签规范化 |
 | `lib/domains.js` | 域名 → 标签映射表 |
-| `lib/site-rules.js` | 站点专用提取规则，见 [docs/sites.md](docs/sites.md) |
+| `lib/site-rules.js` | 站点专用提取规则。**web-extract 的副本** |
+| `lib/web-extract.json` | 上面三个副本同步自 web-extract 的哪个 commit，以及各自的哈希 |
 | `lib/images.js` | 正文里图片链接的收集与替换、后缀判定、内容哈希 |
 | `lib/insert-at-cursor.js` | 把文本插到页面光标处。注入到页面里跑，只依赖 DOM |
 | `lib/oss.js` | 阿里云 OSS 签名与上传 |
@@ -291,18 +295,34 @@ popup 关掉就没了，这份是落盘的。
 | `storage.js` | `chrome.storage.local` 封装。**故意不放 lib/**，那个目录是 web accessible 的 |
 | `background.js` | service worker：注入抓取 → 拼正文 → POST。放这里是因为 popup 一关 fetch 就断 |
 | `popup.*` / `options.*` | 剪藏面板 / 登录与默认值设置 |
-| `tools/probe.mjs` | 调试用：对真实页面跑一遍提取，见下 |
+| `tools/sync-web-extract.mjs` | 从 web-extract 同步那三个副本，见下 |
 | `tools/screenshot.mjs` | 重新生成 README 里的设置页 / popup 截图 |
 
 `lib/extract.js`、`lib/html2md.js`、`lib/site-rules.js`、`lib/insert-at-cursor.js` 在 `manifest.json` 里声明为
 `web_accessible_resources`，因为注入脚本要 `import()` 它们；`lib/simperium.js`、
 `storage.js` 不外露。给注入侧拆新模块时记得一起加进去，漏了页面会直接 `ReferenceError`。
 
+### 页面解析在 web-extract
+
+`lib/extract.js`、`lib/html2md.js`、`lib/site-rules.js` 的真源是
+[web-extract](https://github.com/seyeeL/web-extract)（同一套代码，另带命令行和 Agent Skill）。这里放的是同步过来的副本，
+扩展没有打包工具，注入脚本直接 `import()` 它们，所以没走 npm 依赖。
+
+**别直接改这三个文件。** 改 web-extract、跑它的测试、提交，再回来同步：
+
+```bash
+npm run sync:web-extract                 # 默认读 ../web-extract
+node tools/sync-web-extract.mjs <目录>   # 放在别处时
+```
+
+同步会把来源 commit 和文件哈希写进 `lib/web-extract.json`。`tests/vendor.test.mjs` 对着哈希
+校验，直接改了副本测试就挂。
+
 ## 测试
 
-测试用 node 原生 test runner。`html2md` 等纯逻辑测试沿用 `tests/fake-dom.mjs` 的假节点；
-X 的选择器和提取管线用 `linkedom` 跑离线 DOM 回归，不依赖网络或登录态。它只用于开发测试，
-扩展运行时不加载这个依赖。
+测试用 node 原生 test runner。提取和站点规则的测试在 web-extract 仓库；这里只留
+「提取 → 拼笔记」的集成用例（`tests/clip-pipeline.test.mjs`，用 `linkedom` 跑离线 DOM）和
+副本校验。`linkedom` 只用于开发测试，扩展运行时不加载这个依赖。
 
 ```bash
 npm ci
@@ -329,46 +349,26 @@ node tools/screenshot.mjs           # 设置页 → docs/options.png
 node tools/screenshot.mjs --popup   # popup → docs/popup.png
 ```
 
-这两个工具都要 Node 22+（全局 `fetch` 和 `WebSocket`）。
+截图工具要 Node 22+（全局 `fetch` 和 `WebSocket`）。
 
 ## 调试某个站点抓不到正文
 
-`lib/extract.js` 要真 DOM 才能跑，node 里测不了；抓 HTTP 请求也没用，很多站点的正文是
-JS 渲染出来的。`tools/probe.mjs` 起一个独立 profile 的 Chrome（不碰你正在用的那个），
-把提取逻辑注进页面执行：
+用 web-extract 的命令行，它跑的是同一套提取逻辑：
 
 ```bash
-node tools/probe.mjs "<url>"          # 看提取结果：标题、选中的容器、正文开头
-node tools/probe.mjs "<url>" --dump   # 看页面里文字量最大的容器，定位正文到底在哪
-node tools/probe.mjs "<url>" --wx     # 用微信 UA，公众号链接需要
-node tools/probe.mjs "<url>" --show   # 开真窗口，不用 headless
+web-extract dump "<url>" --browser          # 页面里文字量最大的容器，正文到底在哪
+web-extract parse "<url>" --browser --json  # 提取选中了什么
+web-extract parse "<url>" --attach --md     # 要登录态的站点，连已经打开目标页的浏览器
 ```
 
-要登录才给内容的站点（小红书用干净 profile 只会拿到风控拦截页）连已经登录的浏览器：
-
-```bash
-# 那个浏览器要带 --remote-debugging-port 启动，而且已经打开了目标页
-node tools/probe.mjs "<url>" --attach=9224
-```
-
-`--attach` 不开新浏览器、不读 cookie，只是连上去在已经打开的那个 tab 里跑一遍提取。
-
-排查顺序：`--dump` 看正文在哪个容器 → 不带参数看提取选中了谁。两者对不上就是选容器的
-问题（改 `PREFERRED` 或 `scoreNode`）；选对了但 `mdLen` 很小，就是被 `cleanClone` 的噪声
-规则误删了（改 `ALWAYS_JUNK` / `WEAK_JUNK`）。
+排查顺序和修法见 [web-extract 的 README](https://github.com/seyeeL/web-extract#抓不到正文怎么查)。修好之后在 web-extract
+提交，再回来 `npm run sync:web-extract`。
 
 ## 已知边界
 
-- **正文提取是启发式的**。语义选择器猜不中就按「段落文字量 × (1 - 链接密度)」打分选容器，
-  论坛、瀑布流、SPA 这类页面会漏。提取不到正文时笔记只留链接，不会写出空笔记。
-  新站点抓不到正文按上面的「调试某个站点抓不到正文」走，实测结论记进
-  [docs/sites.md](docs/sites.md)。
-- **微博的配图抓不到**，只取了正文。原因和补法见 [docs/sites.md](docs/sites.md)。
-- **噪声过滤按 class / id 命名猜**，会误伤。命名里带 `share`、`nav`、`footer` 这类词但
-  文字量大且不是链接堆的容器会被保留 —— 公众号正文就挂在 `p.share_notice_inner` 上，
-  一刀切会把正文删光。短正文顶着这类命名时（公众号贴图页的一两句文案）还是会被删，
-  只能在站点规则里用 `keep` 点名豁免。反过来，正文容器如果被命名成 `related` /
-  `comments` 就一定会丢。
+- **正文提取是启发式的**，论坛、瀑布流、SPA 这类页面会漏，噪声过滤按 class / id 命名猜
+  也会误伤。细节见 [web-extract 的已知边界](https://github.com/seyeeL/web-extract#已知边界)。提取不到正文时笔记只留链接，
+  不会写出空笔记。
 - **不去重**。同一个 URL 剪两次会产生两条笔记。查重要走 Simperium 的 index 接口全表扫，
   代价和收益不匹配，先不做。
 - **只存文本**。Simplenote 不支持附件，图片以 Markdown 链接形式保留。想让图片长期可用
