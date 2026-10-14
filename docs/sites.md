@@ -18,6 +18,10 @@
 4. **[X（推特）](https://github.com/seyeeL/web-extract/blob/main/docs/sites.md#x推特)** `x.com`、`twitter.com`：
    推文正文、配图、视频封面、引用推文、作者、时间全部通过；剪的是你点开的那一条，
    回复默认一起剪（popup 里「同时剪藏评论」可以取消），互动数字不进笔记。
+5. **[知识星球](https://github.com/seyeeL/web-extract/blob/main/docs/sites.md#知识星球)** `wx.zsxq.com`：
+   主题正文、配图、作者、时间全部通过，独立详情页和星球主页上的详情浮层都行；**要登录态**（扩展不受影响）。
+6. **[GitHub Gist](https://github.com/seyeeL/web-extract/blob/main/docs/sites.md#github-gist)** `gist.github.com`：
+   正文（多文件都收）、作者、创建时间全部通过；代码文件剪下来是「行号 | 代码」两列表格。
 
 `lib/domains.js` 里另有[二十来个域名只配了标签](#只配了标签的域名)，提取没验证过，别当成支持。
 
@@ -31,6 +35,8 @@
 | 微博 | `微博` |
 | 小红书 | `小红书` |
 | X（推特） | `推特` |
+| 知识星球 | `知识星球` |
+| GitHub Gist | `GitHub`（跟着 `github.com`） |
 
 ## 只配了标签的域名
 
