@@ -2,6 +2,7 @@
   "name": "simplenote-clipper",
   "version": "0.8.0",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "description": "把网页正文提取为 Markdown 存进 Simplenote 的 Chrome/Edge MV3 扩展",
   "scripts": {
